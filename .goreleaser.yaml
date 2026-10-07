@@ -1,0 +1,25 @@
+version: 2
+
+project_name: arduino-board-tool
+
+builds:
+  - main: ./cmd/arduino-board-tool
+    binary: arduino-board-tool
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/arduino/arduino-board-tool/internal/version.Version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
