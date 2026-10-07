@@ -21,7 +21,7 @@ import (
 type PushRequest struct {
 	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
 	Tag       string   `json:"tag,omitempty" jsonschema:"image tag; default the branch name slugified, or bt-<short sha> on a detached HEAD"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push, default python-apps-base; add the runner of the brick under test when its compose references one"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container of the bake file, which costs a full build once per machine and a manifest check per unchanged image afterwards"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
 }
 
@@ -53,9 +53,6 @@ func (b *Board) Push(ctx context.Context, req PushRequest) (*PushResult, error) 
 	}
 	if _, err := os.Stat(filepath.Join(source, "docker-bake.hcl")); err != nil {
 		return nil, fmt.Errorf("%s is not an app-bricks-py checkout: no docker-bake.hcl", source)
-	}
-	if len(req.Targets) == 0 {
-		req.Targets = []string{"python-apps-base"}
 	}
 	revision, err := gitRevision(ctx, source)
 	if err != nil {
@@ -101,23 +98,48 @@ func (b *Board) Push(ctx context.Context, req PushRequest) (*PushResult, error) 
 		res.Error = "bake failed"
 		return res, nil
 	}
-	for _, target := range req.Targets {
-		ref := local + "app-bricks/" + target + ":" + req.Tag
-		step := host.step(ctx, "push "+target, nil, "docker", "push", ref)
+	// Bake named what it built after the tunnel port and the tag; those are the images to push.
+	built, err := hostImages(ctx, local, req.Tag)
+	if err != nil {
+		return nil, err
+	}
+	if len(built) == 0 {
+		res.Error = "bake produced no image named " + local + "*:" + req.Tag
+		return res, nil
+	}
+	for _, ref := range built {
+		repo := strings.TrimSuffix(strings.TrimPrefix(ref, local), ":"+req.Tag)
+		step := host.step(ctx, "push "+repo, nil, "docker", "push", ref)
 		res.Steps = append(res.Steps, step)
 		if step.ExitCode != 0 {
-			res.Error = "push of " + target + " failed"
+			res.Error = "push of " + repo + " failed"
 			return res, nil
 		}
-		if err := verifyManifest(ctx, port, "app-bricks/"+target, req.Tag); err != nil {
+		if err := verifyManifest(ctx, port, repo, req.Tag); err != nil {
 			res.Error = err.Error()
 			return res, nil
 		}
-		res.Images = append(res.Images, "app-bricks/"+target+":"+req.Tag)
-		// The host copy is named after the tunnel port, which changes every push; the registry holds the image now.
-		res.Steps = append(res.Steps, host.step(ctx, "untag host "+target, nil, "docker", "rmi", ref))
+		res.Images = append(res.Images, repo+":"+req.Tag)
 	}
+	// The host copies are named after the tunnel port, which changes every push; the registry holds them now.
+	res.Steps = append(res.Steps, host.step(ctx, "untag host images", nil, "docker", append([]string{"rmi"}, built...)...))
 	return res, nil
+}
+
+// hostImages lists the images on the developer machine under the tunnel prefix and the tag.
+func hostImages(ctx context.Context, prefix, tag string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "--filter", "reference="+prefix+"*:"+tag)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker images: %w", err)
+	}
+	var refs []string
+	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if l != "" {
+			refs = append(refs, l)
+		}
+	}
+	return refs, nil
 }
 
 // tunnel is the ssh process forwarding a local port to the board registry.

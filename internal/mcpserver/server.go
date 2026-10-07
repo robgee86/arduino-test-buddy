@@ -52,7 +52,7 @@ type registryIn struct{ Target }
 type pushIn struct {
 	Target
 	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push, default python-apps-base; add the runner of the brick under test when its compose references one"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container of the bake file, which costs a full build once per machine and a manifest check per unchanged image afterwards"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
 }
 
@@ -139,7 +139,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_push",
-		Description: "On the developer machine: build the wheel and the bake targets of an app-bricks-py checkout, then push the images to the board registry through an SSH tunnel so only changed layers travel. Returns the tag and registry to pass to board_run, the git revision stamped into the images and per-step timings. Takes minutes on a cold build cache.",
+		Description: "On the developer machine: build the wheel and every container image of an app-bricks-py checkout, then push them to the board registry through an SSH tunnel so only changed layers travel. Returns the tag and registry to pass to board_run, the git revision stamped into the images and per-step timings. The first push of a machine builds and moves everything, minutes and several GB; later pushes cost a manifest check per unchanged image.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, *board.PushResult, error) {
 		b, err := d.board(in.Target)
 		if err != nil {

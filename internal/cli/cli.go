@@ -126,7 +126,7 @@ func pushCmd(o *options) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&req.Source, "source", ".", "app-bricks-py checkout to build from")
-	f.StringSliceVar(&req.Targets, "targets", nil, "bake targets, default python-apps-base")
+	f.StringSliceVar(&req.Targets, "targets", nil, "bake targets to build and push, default every container")
 	f.BoolVar(&req.SkipWheel, "skip-wheel", false, "reuse dist/ instead of rebuilding the wheel")
 	return cmd
 }
