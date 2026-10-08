@@ -24,7 +24,7 @@ type PruneResult struct {
 	SizeMB  int64  `json:"size_mb"`
 }
 
-// Prune waits for running pushes to end, then removes what was asked; it touches only the tool's registry, folder and builder.
+// Prune waits for running pushes and runs to end, then removes what was asked; it touches only the tool's registry, folder and builder. A tag or the cache needs the tool up, all does not.
 func (h *Host) Prune(ctx context.Context, req PruneRequest) (*PruneResult, error) {
 	if req.Tag == "" && !req.Cache && !req.All {
 		return nil, fmt.Errorf("nothing to prune: give a tag, the cache or all")
@@ -36,6 +36,13 @@ func (h *Host) Prune(ctx context.Context, req PruneRequest) (*PruneResult, error
 
 	res := &PruneResult{Steps: []Step{}, Path: h.RegistryDir()}
 	before := dirSizeMB(h.RegistryDir())
+	if !req.All {
+		// Pruning a tag needs the registry, pruning the cache the builder; buildx would boot a stopped builder by itself.
+		if err := h.requireUp(ctx); err != nil {
+			exclusive.release()
+			return nil, err
+		}
+	}
 	if req.All {
 		res.Steps = append(res.Steps, h.removeAll(ctx)...)
 		exclusive.release()
@@ -67,9 +74,6 @@ func (h *Host) Prune(ctx context.Context, req PruneRequest) (*PruneResult, error
 
 // pruneTag deletes the tag from every repository, then collects the layers nothing references any more.
 func (h *Host) pruneTag(ctx context.Context, tag string) ([]Step, error) {
-	if _, err := h.EnsureRegistry(ctx); err != nil {
-		return nil, err
-	}
 	refs, err := h.Images(ctx, tag)
 	if err != nil {
 		return nil, err

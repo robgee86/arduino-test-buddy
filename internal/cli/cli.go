@@ -47,7 +47,7 @@ func New() *cobra.Command {
 	pf.DurationVar(&opts.wait, "wait", board.DefaultWait, "how long run and cleanup queue for their turn on a busy board")
 
 	root.AddCommand(
-		pushCmd(opts), registryCmd(opts), pruneCmd(opts), preflightCmd(opts), examplesCmd(opts), runCmd(opts), logsCmd(opts),
+		upCmd(opts), downCmd(opts), statusCmd(opts), pushCmd(opts), pruneCmd(opts), preflightCmd(opts), examplesCmd(opts), runCmd(opts), logsCmd(opts),
 		execCmd(opts), shellCmd(opts), cleanupCmd(opts), mcpCmd(opts),
 	)
 	return root
@@ -57,8 +57,12 @@ func (o *options) target() (*board.Board, error) {
 	if o.board == "" {
 		return nil, fmt.Errorf("no board given: pass --board or set ARDUINO_BOARD")
 	}
+	h, err := host.New()
+	if err != nil {
+		return nil, err
+	}
 	b := board.New(o.board, board.SSH{Target: o.board}, board.Dev{Registry: o.registry, Tag: o.tag})
-	b.Wait = o.wait
+	b.Wait, b.Host = o.wait, h
 	return b, nil
 }
 
@@ -111,9 +115,19 @@ func preflightCmd(o *options) *cobra.Command {
 	}
 }
 
-func registryCmd(o *options) *cobra.Command {
-	return o.hostCmd("registry", "Start the registry on this machine if needed and show where its data is, its size and its images",
-		func(ctx context.Context, h *host.Host) (any, error) { return h.EnsureRegistry(ctx) })
+func upCmd(o *options) *cobra.Command {
+	return o.hostCmd("up", "Power up: create or start the registry and the builder on this machine",
+		func(ctx context.Context, h *host.Host) (any, error) { return h.Up(ctx) })
+}
+
+func downCmd(o *options) *cobra.Command {
+	return o.hostCmd("down", "Power down: wait for running pushes and runs, then stop the registry and the builder; their data stays",
+		func(ctx context.Context, h *host.Host) (any, error) { return h.Down(ctx) })
+}
+
+func statusCmd(o *options) *cobra.Command {
+	return o.hostCmd("status", "Show whether the registry and the builder run, where the data is, its size and the images",
+		func(ctx context.Context, h *host.Host) (any, error) { return h.Status(ctx) })
 }
 
 func pushCmd(o *options) *cobra.Command {

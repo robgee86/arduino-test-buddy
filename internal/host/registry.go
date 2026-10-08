@@ -8,58 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// RegistryStatus is where the registry keeps its data, how big it is and what it holds.
-type RegistryStatus struct {
-	URL     string   `json:"url"`
-	Created bool     `json:"created"`
-	Path    string   `json:"path"`
-	SizeMB  int64    `json:"size_mb"`
-	Images  []string `json:"images"`
-}
-
-// EnsureRegistry starts the registry container once, then only reports; its data is a plain folder owned by the user.
-func (h *Host) EnsureRegistry(ctx context.Context) (*RegistryStatus, error) {
-	status := &RegistryStatus{URL: h.url, Path: h.RegistryDir()}
-	state, _ := h.cmd.Run(ctx, "", nil, "docker", "ps", "-a", "--filter", "name=^"+RegistryName+"$", "--format", "{{.State}}")
-	switch strings.TrimSpace(state) {
-	case "running":
-	case "":
-		if err := os.MkdirAll(h.RegistryDir(), 0o755); err != nil {
-			return nil, err
-		}
-		// Running as the user keeps every file in the folder deletable without root.
-		user := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-		out, code := h.cmd.Run(ctx, "", nil, "docker", "run", "-d", "--name", RegistryName, "--restart", "unless-stopped",
-			"--user", user, "-p", "127.0.0.1:"+RegistryPort+":5000", "-v", h.RegistryDir()+":/var/lib/registry",
-			"-e", "REGISTRY_STORAGE_DELETE_ENABLED=true", RegistryImage)
-		if code != 0 {
-			return nil, fmt.Errorf("could not start the registry: %s", strings.TrimSpace(out))
-		}
-		status.Created = true
-	default:
-		if out, code := h.cmd.Run(ctx, "", nil, "docker", "start", RegistryName); code != 0 {
-			return nil, fmt.Errorf("could not restart the registry: %s", strings.TrimSpace(out))
-		}
-	}
-	if err := h.waitReady(ctx); err != nil {
-		return nil, err
-	}
-	images, err := h.Images(ctx, "")
-	if err != nil {
-		return nil, err
-	}
-	status.Images = images
-	status.SizeMB = dirSizeMB(h.RegistryDir())
-	return status, nil
-}
-
+// waitReady polls the registry until it answers, for up to 15 seconds.
 func (h *Host) waitReady(ctx context.Context) error {
 	for range 30 {
 		if resp, err := h.request(ctx, http.MethodGet, "/v2/"); err == nil {

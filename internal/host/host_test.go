@@ -38,10 +38,19 @@ func (f *fakeCommander) Run(_ context.Context, _ string, env []string, name stri
 			return r.out, r.code
 		}
 	}
-	if strings.HasPrefix(line, "docker ps") {
+	switch {
+	case strings.HasPrefix(line, "docker ps"):
 		return "running\n", 0
+	case strings.HasPrefix(line, "docker buildx inspect "+BuilderName):
+		return "Name: " + BuilderName + "\nNodes:\nStatus: running\n", 0
 	}
 	return "", 0
+}
+
+// down makes the fake report both containers stopped.
+func (f *fakeCommander) down() {
+	f.answers["docker ps"] = result{out: "exited\n"}
+	f.answers["docker buildx inspect "+BuilderName] = result{out: "Status: stopped\n"}
 }
 
 func (f *fakeCommander) ran(substring string) bool {
@@ -144,9 +153,8 @@ func TestFullPushBuildsWithTheToolBuilderAndPrunesWhatItDidNotUse(t *testing.T) 
 	}
 }
 
-func TestNarrowedPushKeepsTheCacheAndCreatesAMissingBuilder(t *testing.T) {
+func TestNarrowedPushKeepsTheCache(t *testing.T) {
 	h, cmd, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
-	cmd.answers["buildx inspect"] = result{code: 1}
 	res, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main"), Targets: []string{"tps"}, SkipWheel: true})
 	if err != nil {
 		t.Fatal(err)
@@ -154,11 +162,81 @@ func TestNarrowedPushKeepsTheCacheAndCreatesAMissingBuilder(t *testing.T) {
 	if res.Error != "" || !cmd.ran("task build:containers PUSH=1 -- tps") {
 		t.Fatalf("unexpected result: %+v\n%s", res, strings.Join(cmd.commands, "\n"))
 	}
-	if !cmd.ran("buildx create --name arduino-test-buddy --driver docker-container --driver-opt network=host") {
-		t.Error("a missing builder must be created with host networking")
-	}
 	if cmd.ran("buildx prune") || cmd.ran("build:bricks") {
 		t.Error("a narrowed push must neither prune the cache nor rebuild a skipped wheel")
+	}
+}
+
+func TestNothingStartsByItselfWhileDown(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{})
+	cmd.down()
+	if _, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main")}); err != ErrDown {
+		t.Errorf("push while down: %v", err)
+	}
+	if _, err := h.Prune(context.Background(), PruneRequest{Tag: "x"}); err != ErrDown {
+		t.Errorf("prune of a tag while down: %v", err)
+	}
+	if _, err := h.Use(context.Background()); err != ErrDown {
+		t.Errorf("a board run while down: %v", err)
+	}
+	st, err := h.Status(context.Background())
+	if err != nil || st.Up() || st.Registry != Stopped || st.Builder != Stopped {
+		t.Errorf("status: %+v %v", st, err)
+	}
+	if cmd.ran("docker start") || cmd.ran("--bootstrap") || cmd.ran("task ") || cmd.ran("buildx du") {
+		t.Errorf("nothing may start or build while down:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestUpCreatesWhatIsMissingWithoutAutomaticRestarts(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{})
+	cmd.answers["docker ps"] = result{}
+	cmd.answers["docker buildx inspect "+BuilderName] = result{code: 1}
+	if _, err := h.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !cmd.ran("docker run -d --name arduino-test-buddy-registry --user") || cmd.ran("--restart unless-stopped") {
+		t.Error("the registry must be created without a restart policy")
+	}
+	if !cmd.ran("docker buildx create --name arduino-test-buddy --driver docker-container --driver-opt network=host --bootstrap") {
+		t.Error("a missing builder must be created with host networking")
+	}
+	if !cmd.ran("docker update --restart=no arduino-test-buddy-registry buildx_buildkit_arduino-test-buddy0") {
+		t.Error("neither container may restart with Docker")
+	}
+}
+
+func TestUpStartsStoppedContainersAndDownStopsThem(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{})
+	cmd.down()
+	if _, err := h.Up(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !cmd.ran("docker start arduino-test-buddy-registry") || !cmd.ran("docker buildx inspect --bootstrap arduino-test-buddy") || cmd.ran("docker run") {
+		t.Errorf("up must start, not recreate:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+	delete(cmd.answers, "docker ps")
+	delete(cmd.answers, "docker buildx inspect "+BuilderName)
+	if _, err := h.Down(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !cmd.ran("docker stop arduino-test-buddy-registry") || !cmd.ran("docker buildx stop arduino-test-buddy") {
+		t.Errorf("down must stop both:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestDownWaitsForRunsHoldingTheRegistry(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{})
+	release, err := h.Use(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.lock(true, false); err != errBusy {
+		t.Errorf("a down must not get the lock while a run holds the registry: %v", err)
+	}
+	release()
+	if _, err := h.lock(true, false); err != nil {
+		t.Errorf("the lock must be free once the run released it: %v", err)
 	}
 }
 
@@ -193,7 +271,7 @@ func TestPruneTagDeletesOnlyThatTagThenCollects(t *testing.T) {
 	if !cmd.ran("docker restart arduino-test-buddy-registry") {
 		t.Error("the registry must restart after collecting, or its cache keeps claiming deleted layers")
 	}
-	if cmd.ran("buildx") || len(res.Steps) != 4 {
+	if cmd.ran("buildx prune") || len(res.Steps) != 4 {
 		t.Errorf("only the tag was asked: %+v", res.Steps)
 	}
 }

@@ -37,7 +37,7 @@ const cacheMargin = time.Minute
 
 var slugRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache it did not use.
+// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache it did not use. It needs the tool up.
 func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 	source, err := filepath.Abs(req.Source)
 	if err != nil {
@@ -56,19 +56,12 @@ func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 		}
 	}
 	res := &PushResult{Tag: req.Tag, Revision: revision, Images: []string{}, Steps: []Step{}}
-	if _, err := h.EnsureRegistry(ctx); err != nil {
-		return nil, err
-	}
-	if step, created := h.ensureBuilder(ctx); created {
-		res.Steps = append(res.Steps, step)
-		if !step.OK() {
-			res.Error = "could not create the builder"
-			return res, nil
-		}
-	}
-
 	shared, err := h.lock(false, true)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.requireUp(ctx); err != nil {
+		shared.release()
 		return nil, err
 	}
 	begin := time.Now()
@@ -123,16 +116,6 @@ func (h *Host) pruneUnused(ctx context.Context, used time.Duration) Step {
 	step, _ := h.step(ctx, "prune unused build cache", "", nil, "docker", "buildx", "prune", "--builder", BuilderName, "--force",
 		"--filter", fmt.Sprintf("until=%ds", int(used.Seconds())))
 	return step
-}
-
-// ensureBuilder creates the tool's builder once; host networking lets it push to the registry on localhost.
-func (h *Host) ensureBuilder(ctx context.Context) (Step, bool) {
-	if _, code := h.cmd.Run(ctx, "", nil, "docker", "buildx", "inspect", BuilderName); code == 0 {
-		return Step{}, false
-	}
-	step, _ := h.step(ctx, "create builder", "", nil, "docker", "buildx", "create", "--name", BuilderName,
-		"--driver", "docker-container", "--driver-opt", "network=host", "--bootstrap")
-	return step, true
 }
 
 func gitRevision(ctx context.Context, dir string) (string, error) {

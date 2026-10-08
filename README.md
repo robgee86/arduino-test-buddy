@@ -2,7 +2,7 @@
 
 Test App Bricks on a real Arduino board from your machine. One binary, two faces: a CLI for you and CI, an MCP server for Claude Code and other agents. Same operations, same structured results.
 
-It replaces the SSH juggling of a board test session with a handful of calls that cannot step on each other. Images are built once on your machine and pushed to a registry there; each board pulls only what its apps use, through a tunnel that lives for one run. Sessions sharing a board take turns, every `arduino-app-cli` call is serialized, logs come back cut to the current run, and cleanup removes only what the session created. Everything the tool keeps on your machine is one folder and one builder, both removable with one command.
+It replaces the SSH juggling of a board test session with a handful of calls that cannot step on each other. Images are built once on your machine and pushed to a registry there; each board pulls only what its apps use, through a tunnel that lives for one run. Sessions sharing a board take turns, every `arduino-app-cli` call is serialized, logs come back cut to the current run, and cleanup removes only what the session created. Nothing runs in the background: `up` starts the tool's two containers, the registry and the builder, and `down` stops them. Everything it keeps on your machine is one folder and one builder, both removable with one command.
 
 ## Install
 
@@ -18,6 +18,7 @@ $ claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp   # o
 From an `app-bricks-py` checkout of the branch to test:
 
 ```console
+$ arduino-test-buddy up                                          # start the registry and the builder
 $ arduino-test-buddy push                                        # wheel + every image, pushed to the registry on this machine; prints the tag
 $ arduino-test-buddy --board ventunoq --tag my-branch preflight  # disk, CLI, apps, images, devices, as facts
 $ arduino-test-buddy --board ventunoq --tag my-branch run --dir ./bt-mytest
@@ -26,6 +27,7 @@ $ arduino-test-buddy --board ventunoq --tag my-branch examples --brick weather_f
 $ arduino-test-buddy --board ventunoq --tag my-branch run examples:bricks/arduino/weather_forecast/01_weather_forecast_by_city_example
 $ arduino-test-buddy --board ventunoq --tag my-branch cleanup --brick weather_forecast
 $ arduino-test-buddy --tag my-branch prune                       # when the branch is done: give its registry space back
+$ arduino-test-buddy down                                        # stop both containers; the data stays for the next up
 ```
 
 `--board` and `--tag` can come from `ARDUINO_BOARD` and `ARDUINO_BOARD_TAG`; `--format json` prints the full result. A test app is a normal app folder whose `main.py` prints `BOARD-TEST PASS|FAIL: <check>` lines and ends with `BOARD-TEST SUMMARY: <passed>/<total>`; `run` returns as soon as that line appears.

@@ -45,7 +45,12 @@ func (d Defaults) board(t Target) (*board.Board, error) {
 	if name == "" {
 		return nil, fmt.Errorf("no board given: pass board or start the server with --board")
 	}
+	h, err := host.New()
+	if err != nil {
+		return nil, err
+	}
 	b := board.New(name, board.SSH{Target: name}, board.Dev{Registry: registry, Tag: tag})
+	b.Host = h
 	if d.Wait > 0 {
 		b.Wait = d.Wait
 	}
@@ -54,7 +59,7 @@ func (d Defaults) board(t Target) (*board.Board, error) {
 
 type preflightIn struct{ Target }
 
-type registryIn struct{}
+type hostIn struct{}
 
 type examplesIn struct {
 	Target
@@ -125,45 +130,23 @@ func register(s *mcp.Server, d Defaults) {
 		return nil, out, err
 	})
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "board_registry",
-		Description: "On the developer machine: start the image registry the boards pull from if it is not running, and show the folder holding its data, its size and its images.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ registryIn) (*mcp.CallToolResult, *host.RegistryStatus, error) {
-		h, err := host.New()
-		if err != nil {
-			return nil, nil, err
-		}
-		out, err := h.EnsureRegistry(ctx)
-		return nil, out, err
-	})
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "board_push",
-		Description: "On the developer machine: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops the build cache of images no longer built.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in host.PushRequest) (*mcp.CallToolResult, *host.PushResult, error) {
-		h, err := host.New()
-		if err != nil {
-			return nil, nil, err
-		}
-		if in.Tag == "" {
-			in.Tag = d.Tag
-		}
-		out, err := h.Push(ctx, in)
-		return nil, out, err
-	})
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "board_prune",
-		Description: "On the developer machine, after running pushes end: delete one tag's images from the registry and free the layers no other tag uses, empty the tool's build cache, or remove everything the tool created there. Touches nothing outside the tool's registry, folder and builder.",
-		Annotations: destructive,
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in host.PruneRequest) (*mcp.CallToolResult, *host.PruneResult, error) {
-		h, err := host.New()
-		if err != nil {
-			return nil, nil, err
-		}
-		out, err := h.Prune(ctx, in)
-		return nil, out, err
-	})
+	hostTool(s, "buddy_up", "On the developer machine: power up the tool, creating or starting the registry the boards pull from and the builder. Nothing runs in the background until this is called, and nothing restarts with Docker.", nil,
+		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Up(ctx) })
+	hostTool(s, "buddy_down", "On the developer machine: power down the tool once running pushes and board runs end, stopping the registry and the builder. Their data stays for the next buddy_up. Other sessions using the tool then get an error asking for buddy_up.", nil,
+		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Down(ctx) })
+	hostTool(s, "buddy_status", "On the developer machine: whether the registry and the builder run, the folder holding the registry data with its size, the build cache size and the images. Starts nothing.", readOnly,
+		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Status(ctx) })
+	hostTool(s, "buddy_push", "On the developer machine, with the tool up: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops the build cache of images no longer built.", nil,
+		func(ctx context.Context, h *host.Host, in host.PushRequest) (*host.PushResult, error) {
+			if in.Tag == "" {
+				in.Tag = d.Tag
+			}
+			return h.Push(ctx, in)
+		})
+	hostTool(s, "buddy_prune", "On the developer machine, after running pushes and runs end: delete one tag's images from the registry and free the layers no other tag uses, empty the tool's build cache, or remove everything the tool created there. A tag or the cache needs the tool up. Touches nothing outside the tool's registry, folder and builder.", destructive,
+		func(ctx context.Context, h *host.Host, in host.PruneRequest) (*host.PruneResult, error) {
+			return h.Prune(ctx, in)
+		})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_examples",
@@ -249,6 +232,19 @@ func register(s *mcp.Server, d Defaults) {
 		out, err := b.Cleanup(ctx, in.CleanupRequest)
 		return nil, out, err
 	})
+}
+
+// hostTool registers an operation of the developer machine; it needs no board.
+func hostTool[In, Out any](s *mcp.Server, name, description string, annotations *mcp.ToolAnnotations, op func(context.Context, *host.Host, In) (*Out, error)) {
+	mcp.AddTool(s, &mcp.Tool{Name: name, Description: description, Annotations: annotations},
+		func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, *Out, error) {
+			h, err := host.New()
+			if err != nil {
+				return nil, nil, err
+			}
+			out, err := op(ctx, h, in)
+			return nil, out, err
+		})
 }
 
 func ptr[T any](v T) *T { return &v }

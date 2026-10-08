@@ -5,6 +5,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -140,6 +141,19 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	}
 	if !f.ran(`DOCKER_REGISTRY_BASE=localhost:23456/ .* app stop /home/arduino/ArduinoApps/bt-x-probe`) {
 		t.Error("the app must start and stop through the turn's tunnel port")
+	}
+}
+
+type downHost struct{}
+
+func (downHost) Use(context.Context) (func(), error) { return nil, errors.New("down") }
+
+func TestRunFailsBeforeItsTurnWhenTheHostRegistryIsDown(t *testing.T) {
+	f := &fakeRunner{}
+	b := New("x", f, Dev{Tag: "bt-x"})
+	b.Host = downHost{}
+	if _, err := b.Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 || f.ran(`app start`) {
+		t.Errorf("a run must fail without taking a turn: %v %v", err, f.leases)
 	}
 }
 

@@ -61,11 +61,17 @@ func (d Dev) Env() []string {
 // DefaultWait is how long a session queues for its turn on a busy board.
 const DefaultWait = 30 * time.Minute
 
+// HostRegistry is the registry a turn's tunnel leads to; Use holds it for the run so it can't be powered down mid-pull.
+type HostRegistry interface {
+	Use(ctx context.Context) (release func(), err error)
+}
+
 // Board is one reachable board plus the images a session runs on.
 type Board struct {
 	Name   string
 	Dev    Dev
 	Wait   time.Duration
+	Host   HostRegistry
 	runner Runner
 	mu     sync.Mutex
 }
@@ -80,6 +86,13 @@ func (b *Board) withTurn(ctx context.Context, forward bool, fn func(dev Dev) err
 	hostPort := ""
 	if forward && b.Dev.tunneled() {
 		hostPort = host.RegistryPort
+		if b.Host != nil {
+			release, err := b.Host.Use(ctx)
+			if err != nil {
+				return 0, err
+			}
+			defer release()
+		}
 	}
 	lease, err := b.runner.Lease(ctx, hostPort, b.Wait)
 	if err != nil {

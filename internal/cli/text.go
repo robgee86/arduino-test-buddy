@@ -35,10 +35,19 @@ func text(v any) string {
 		fmt.Fprintf(&sb, "assets: %s\n", orNone(r.Assets))
 		fmt.Fprintf(&sb, "video: %s\n", orNone(r.VideoDevices))
 		fmt.Fprintf(&sb, "audio: %s\n", orNone(r.AudioCards))
-	case *host.RegistryStatus:
-		fmt.Fprintf(&sb, "registry: %s  created now: %t\n", r.URL, r.Created)
-		fmt.Fprintf(&sb, "data: %s  (%d MB)\n", r.Path, r.SizeMB)
-		fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
+	case *host.Status:
+		power := "down"
+		if r.Up() {
+			power = "up"
+		}
+		fmt.Fprintf(&sb, "arduino-test-buddy is %s  registry: %s  builder: %s\n", power, r.Registry, r.Builder)
+		fmt.Fprintf(&sb, "registry data: %s  (%d MB)\n", r.Path, r.SizeMB)
+		if r.Cache != "" {
+			fmt.Fprintf(&sb, "build cache: %s\n", r.Cache)
+		}
+		if r.Registry == host.Running {
+			fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
+		}
 	case *host.PushResult:
 		fmt.Fprintf(&sb, "tag: %s  revision: %s\n", r.Tag, r.Revision)
 		writeSteps(&sb, r.Steps)

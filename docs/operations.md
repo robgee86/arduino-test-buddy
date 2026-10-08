@@ -1,6 +1,6 @@
 # Operations and their guarantees
 
-The operations split by where they run. `push`, `registry` and `prune` act on the developer machine and need no board. The others target one board (`--board`) and one session, named by the dev image tag (`--tag`). Without a tag the board runs its released stack. Each operation returns one result, printed as text or as JSON with `--format json`, and the MCP tools return the same result as structured content.
+The operations split by where they run. `up`, `down`, `status`, `push` and `prune` act on the developer machine and need no board. The others target one board (`--board`) and one session, named by the dev image tag (`--tag`). Without a tag the board runs its released stack. Each operation returns one result, printed as text or as JSON with `--format json`, and the MCP tools return the same result as structured content.
 
 ## Rules every board operation follows
 
@@ -18,13 +18,19 @@ By default every container is built and pushed, so nothing a brick's compose fil
 
 The result lists every image the registry holds under the tag after the push, so a narrowed push also shows what an earlier full push of the tag left. Every image carries the commit it was built from in its `org.opencontainers.image.revision` label, with a `-dirty` suffix for an unclean tree. The tag defaults to the branch name made safe for an image tag; a detached HEAD uses `bt-<worktree folder>`, so parallel worktrees at the same commit never share a tag.
 
-## registry
+## up, down, status
 
-Starts the registry on the developer machine if it is not running, then reports its address, the folder holding its data, the folder's size and every image it holds. See [disk.md](disk.md).
+The tool runs two containers on the developer machine: the registry the boards pull from and the builder, which buildx runs in its own container. Nothing runs until `up`, and neither container restarts with Docker or after a reboot.
+
+- `up` creates what is missing and starts what is stopped, then waits until the registry answers.
+- `down` waits for running pushes, prunes and board runs to end, then stops both. Their data stays for the next `up`.
+- `status` reports both states, the registry folder and its size, the build cache size and the images, and starts nothing.
+
+`push`, `prune --tag` and `prune --cache` need the tool up, and so does a `run` that pulls from the host registry; while it is down they fail at once and ask for `up`, before taking a turn on any board. See [disk.md](disk.md).
 
 ## prune
 
-Gives back disk on the developer machine, after running pushes end. `--tag` deletes the tag's images and frees the layers no other tag uses; `--cache` empties the build cache; `--all` removes the registry container, its folder and the builder with its cache. It touches nothing outside the tool's registry, folder and builder.
+Gives back disk on the developer machine, after running pushes and board runs end. `--tag` deletes the tag's images and frees the layers no other tag uses; `--cache` empties the build cache; `--all` removes the registry container, its folder and the builder with its cache. It touches nothing outside the tool's registry, folder and builder.
 
 ## preflight
 
@@ -36,7 +42,7 @@ Lists the shipped examples of a brick, named by the brick id (`video_object_dete
 
 ## run
 
-Copies the local app folder if given, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
+Copies the local app folder if given, holds the host registry so a `down` waits for the run, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
 
 - The log of this run only, cut at the last `App is starting` line, so an old traceback never shadows a healthy restart.
 - Each container with its image and the revision label the image was built from.
