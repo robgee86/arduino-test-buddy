@@ -126,20 +126,25 @@ func (b *Board) Push(ctx context.Context, req PushRequest) (*PushResult, error) 
 	return res, nil
 }
 
-// hostImages lists the images on the developer machine under the tunnel prefix and the tag.
+// hostImages lists the images on the developer machine under the tunnel prefix and the tag; Docker's own reference filter cannot span the slash in app-bricks/<name>.
 func hostImages(ctx context.Context, prefix, tag string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "--filter", "reference="+prefix+"*:"+tag)
+	cmd := exec.CommandContext(ctx, "docker", "images", "--format", "{{.Repository}}:{{.Tag}}")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("docker images: %w", err)
 	}
-	var refs []string
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if l != "" {
-			refs = append(refs, l)
+	return taggedRefs(strings.Split(string(out), "\n"), prefix, tag), nil
+}
+
+// taggedRefs keeps the references under prefix carrying exactly tag.
+func taggedRefs(refs []string, prefix, tag string) []string {
+	var out []string
+	for _, ref := range refs {
+		if strings.HasPrefix(ref, prefix) && strings.HasSuffix(ref, ":"+tag) {
+			out = append(out, ref)
 		}
 	}
-	return refs, nil
+	return out
 }
 
 // tunnel is the ssh process forwarding a local port to the board registry.

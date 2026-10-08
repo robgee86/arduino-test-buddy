@@ -24,6 +24,22 @@ func TestSlug(t *testing.T) {
 	}
 }
 
+func TestTaggedRefsKeepsOnlyThePushPrefixAndTag(t *testing.T) {
+	refs := []string{
+		"localhost:51527/app-bricks/python-apps-base:bt-lean",
+		"localhost:51527/app-bricks/tps:bt-lean",
+		"localhost:51527/app-bricks/tps:bt-other",
+		"localhost:62758/app-bricks/python-apps-base:bt-lean",
+		"ghcr.io/arduino/app-bricks/python-apps-base:bt-lean",
+		"",
+	}
+	got := taggedRefs(refs, "localhost:51527/", "bt-lean")
+	want := []string{"localhost:51527/app-bricks/python-apps-base:bt-lean", "localhost:51527/app-bricks/tps:bt-lean"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
 func TestRegistryDeleteScriptTargetsOneTag(t *testing.T) {
 	script := registryDeleteScript("app-bricks/python-apps-base:bt-x")
 	for _, want := range []string{"/v2/app-bricks/python-apps-base/manifests/bt-x", "-X DELETE"} {
