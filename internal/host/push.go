@@ -18,7 +18,7 @@ import (
 type PushRequest struct {
 	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
 	Tag       string   `json:"tag,omitempty" jsonschema:"image tag; default the branch name, or bt-<worktree folder> on a detached HEAD"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also prunes the build cache of images no longer built"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also drops build cache no push used for 3 days"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
 }
 
@@ -32,12 +32,12 @@ type PushResult struct {
 	Error  string   `json:"error,omitempty"`
 }
 
-// cacheMargin keeps the cache entries a push touched just before its own start.
-const cacheMargin = time.Minute
+// cacheKeep is how long build cache entries survive without any push using them: branches tested in parallel keep theirs, abandoned ones age out.
+const cacheKeep = 72 * time.Hour
 
 var slugRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache it did not use. It needs the tool up.
+// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache no push used for 3 days. It needs the tool up.
 func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 	source, err := filepath.Abs(req.Source)
 	if err != nil {
@@ -64,7 +64,6 @@ func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 		shared.release()
 		return nil, err
 	}
-	begin := time.Now()
 	ok := h.build(ctx, source, revision, req, res)
 	shared.release()
 	if !ok {
@@ -78,7 +77,7 @@ func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 		return res, nil
 	}
 	if len(req.Targets) == 0 {
-		res.Steps = append(res.Steps, h.pruneUnused(ctx, time.Since(begin)+cacheMargin))
+		res.Steps = append(res.Steps, h.pruneUnused(ctx))
 	}
 	return res, nil
 }
@@ -103,8 +102,8 @@ func (h *Host) build(ctx context.Context, source, revision string, req PushReque
 	return true
 }
 
-// pruneUnused drops the build cache a full push did not touch: everything still needed was used by it, the rest belongs to images no longer built.
-func (h *Host) pruneUnused(ctx context.Context, used time.Duration) Step {
+// pruneUnused drops the build cache no push used within cacheKeep; a full push rebuilds every container, so it refreshes everything its branch still needs.
+func (h *Host) pruneUnused(ctx context.Context) Step {
 	exclusive, err := h.lock(true, false)
 	if errors.Is(err, errBusy) {
 		return Step{Name: "prune unused build cache: skipped, another push is running and prunes when it ends"}
@@ -114,7 +113,7 @@ func (h *Host) pruneUnused(ctx context.Context, used time.Duration) Step {
 	}
 	defer exclusive.release()
 	step, _ := h.step(ctx, "prune unused build cache", "", nil, "docker", "buildx", "prune", "--builder", BuilderName, "--force",
-		"--filter", fmt.Sprintf("until=%ds", int(used.Seconds())))
+		"--filter", fmt.Sprintf("until=%dh", int(cacheKeep.Hours())))
 	return step
 }
 

@@ -14,7 +14,7 @@ The operations split by where they run. `up`, `down`, `status`, `push` and `prun
 
 Builds on the developer machine from the checkout it is given (`--source`, default the current directory) through the repository's own `task build:bricks` and `task build:containers PUSH=1`, on the tool's dedicated builder, which pushes straight into the registry. Nothing lands in Docker's own image store. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
 
-By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and the build cache the push did not use is dropped at the end. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
+By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and at the end the build cache no push used for 3 days is dropped. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
 
 The result lists every image the registry holds under the tag after the push, so a narrowed push also shows what an earlier full push of the tag left. Every image carries the commit it was built from in its `org.opencontainers.image.revision` label, with a `-dirty` suffix for an unclean tree. The tag defaults to the branch name made safe for an image tag; a detached HEAD uses `bt-<worktree folder>`, so parallel worktrees at the same commit never share a tag.
 

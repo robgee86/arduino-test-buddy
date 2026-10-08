@@ -132,7 +132,7 @@ func TestSlug(t *testing.T) {
 	}
 }
 
-func TestFullPushBuildsWithTheToolBuilderAndPrunesWhatItDidNotUse(t *testing.T) {
+func TestFullPushBuildsWithTheToolBuilderAndDropsStaleCache(t *testing.T) {
 	h, cmd, _ := newHost(t, map[string][]string{"app-bricks/python-apps-base": {"feature-x", "other"}})
 	res, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "feature/x")})
 	if err != nil {
@@ -145,8 +145,8 @@ func TestFullPushBuildsWithTheToolBuilderAndPrunesWhatItDidNotUse(t *testing.T) 
 		!cmd.ran("task build:containers PUSH=1 --") {
 		t.Errorf("the repository task must build on the tool's builder and push:\n%s", strings.Join(cmd.commands, "\n"))
 	}
-	if !cmd.ran("docker buildx prune --builder arduino-test-buddy --force --filter until=") {
-		t.Error("a full push must prune the cache it did not use")
+	if !cmd.ran("docker buildx prune --builder arduino-test-buddy --force --filter until=72h") {
+		t.Error("a full push must drop the cache no push used for 3 days, and keep what parallel branches still use")
 	}
 	if cmd.ran("buildx create") {
 		t.Error("an existing builder must be reused")
@@ -305,7 +305,7 @@ func TestPruneWaitsForRunningPushesAndAPushSkipsPruningDuringOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if step := h.pruneUnused(context.Background(), 0); !strings.Contains(step.Name, "skipped") {
+	if step := h.pruneUnused(context.Background()); !strings.Contains(step.Name, "skipped") {
 		t.Errorf("pruning during another push must be skipped: %+v", step)
 	}
 	shared.release()

@@ -5,7 +5,7 @@ The tool keeps state in exactly three places, each with a fixed name, so nothing
 | What | Where | Size | How to see it | How to get it back |
 |---|---|---|---|---|
 | Registry data | `~/Library/Caches/arduino-test-buddy/registry` on macOS, `~/.cache/arduino-test-buddy/registry` on Linux | compressed images, about a third of their size | `arduino-test-buddy registry`, or `du -sh` | `prune --tag <tag>` for one branch, `prune --all` for everything |
-| Build cache | the `arduino-test-buddy` buildx builder, in the Docker volume `buildx_buildkit_arduino-test-buddy0_state` | uncompressed layers, up to about twice the images | `docker buildx du --builder arduino-test-buddy` | trimmed after every full push; `prune --cache` empties it, `prune --all` removes the builder |
+| Build cache | the `arduino-test-buddy` buildx builder, in the Docker volume `buildx_buildkit_arduino-test-buddy0_state` | uncompressed layers, up to about twice the images | `docker buildx du --builder arduino-test-buddy` | entries no push used for 3 days are dropped after every full push; `prune --cache` empties it, `prune --all` removes the builder |
 | Pulled images on a board | the board's Docker, named `localhost:<port>/app-bricks/<image>:<tag>` | what the session's apps used | `preflight --tag <tag>` | `cleanup --tag <tag>` |
 
 ## The registry
@@ -18,7 +18,7 @@ A `registry:3` container named `arduino-test-buddy-registry`, bound to `127.0.0.
 
 Builds run on a dedicated builder, which buildx runs in its own container, `buildx_buildkit_arduino-test-buddy0`, also running only between `up` and `down`. Its cache holds only this tool's builds and pruning it never touches other projects. The cache is what keeps rebuilds fast and layers identical between pushes, so only changed layers ever reach the registry and the boards.
 
-A full push builds every container, so it touches every cache entry still needed. When it ends, the tool drops every entry the push did not use: by definition the cache of images no longer built. A push narrowed with `--targets` does not prune, and a push that ends while another push is running leaves pruning to that one.
+When a full push ends, the tool drops every cache entry no push has used for 3 days. A full push rebuilds every container, so each push refreshes everything its branch still needs: branches tested in parallel keep their layers, and a branch nobody pushed for 3 days ages out. A push narrowed with `--targets` does not prune, and a push that ends while another push is running leaves pruning to that one.
 
 ## On a board
 

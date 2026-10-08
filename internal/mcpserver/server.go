@@ -136,7 +136,7 @@ func register(s *mcp.Server, d Defaults) {
 		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Down(ctx) })
 	hostTool(s, "buddy_status", "On the developer machine: whether the registry and the builder run, the folder holding the registry data with its size, the build cache size and the images. Starts nothing.", readOnly,
 		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Status(ctx) })
-	hostTool(s, "buddy_push", "On the developer machine, with the tool up: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops the build cache of images no longer built.", nil,
+	hostTool(s, "buddy_push", "On the developer machine, with the tool up: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops build cache no push used for 3 days.", nil,
 		func(ctx context.Context, h *host.Host, in host.PushRequest) (*host.PushResult, error) {
 			if in.Tag == "" {
 				in.Tag = d.Tag
