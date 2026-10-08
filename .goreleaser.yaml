@@ -21,5 +21,9 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# release-please publishes the release with its notes; goreleaser only attaches the archives.
+release:
+  mode: keep-existing
+
 changelog:
-  use: github
+  disable: true
