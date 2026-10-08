@@ -132,8 +132,13 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 		}
 	}
 
+	// A session's own app may still run after a crash or a kept run, so it restarts; an example running for another session must not be taken over.
+	verb := "restart"
+	if IsExample(req.App) {
+		verb = "start"
+	}
 	begin := time.Now()
-	start, err := b.run(ctx, appCLI(dev, "app", "start", appRef(req.App), "--format", "json-lines"))
+	start, err := b.run(ctx, appCLI(dev, "app", verb, appRef(req.App), "--format", "json-lines"))
 	if err != nil {
 		return err
 	}
@@ -249,7 +254,7 @@ func parseStartEvent(out Output) (string, bool) {
 		return event.Error, false
 	}
 	text := strings.TrimSpace(event.Output.Stdout + "\n" + event.Output.Stderr)
-	return text, out.OK() && event.Status == "started"
+	return text, out.OK() && (event.Status == "started" || event.Status == "restarted")
 }
 
 // missingVariables lists the brick variables a failed start asked for; the fix is app brick config.

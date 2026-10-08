@@ -98,10 +98,12 @@ const (
 	leaseMarker = "ARDUINO-TEST-BUDDY-LEASED"
 )
 
+// leaseScript holds the turn until stdin closes, then ends its own ssh session: ssh would otherwise stay up while the board's Docker keeps an idle connection open through the tunnel.
+const leaseScript = `echo ` + leaseMarker + `; cat >/dev/null; kill -TERM "$(cut -d" " -f4 /proc/$PPID/stat)"`
+
 // Lease waits for the board's turn file through an ssh session whose remote side holds it until its stdin closes. The tool owns that stdin, so the turn and the tunnel end when the tool exits for any reason, kill -9 included.
 func (s SSH) Lease(ctx context.Context, hostPort string, wait time.Duration) (*Lease, error) {
-	remote := shell.Join("exec", "flock", "-w", strconv.Itoa(int(wait.Seconds())), leaseFile,
-		"sh", "-c", "echo "+leaseMarker+"; exec cat >/dev/null")
+	remote := shell.Join("exec", "flock", "-w", strconv.Itoa(int(wait.Seconds())), leaseFile, "sh", "-c", leaseScript)
 	var lastErr error
 	for range 5 {
 		port := 0

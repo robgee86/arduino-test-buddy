@@ -159,7 +159,7 @@ func step(description, command string) Step {
 // inventory lists the artifacts a session may own; the assets and images lists are already scoped to the session tag.
 func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) {
 	commands := map[string]string{
-		"apps":       appCLI(Dev{}, "app", "ps", "-a", "--format", "json"),
+		"apps":       shell.Join("ls", "-1", AppsDir),
 		"containers": "docker ps -a --format '{{.Names}}|{{.State}}'",
 		"networks":   "docker network ls --format '{{.Name}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}'",
@@ -184,13 +184,8 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 		Assets:           []string{},
 		ExampleLeftovers: lines(s["leftovers"]),
 	}
-	apps, err := parseApps(s["apps"])
-	if err != nil {
-		return Remaining{}, err
-	}
-	for _, a := range apps {
-		state.Apps = append(state.Apps, a.Name)
-	}
+	// The app folders are the apps: the CLI names apps after them, and lists only those it can parse.
+	state.Apps = append(state.Apps, lines(s["apps"])...)
 	for _, ref := range lines(s["images"]) {
 		if b.isDevImage(ref) {
 			state.DevImages = append(state.DevImages, ref)

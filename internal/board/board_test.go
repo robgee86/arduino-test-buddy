@@ -72,6 +72,9 @@ func poll(log, state string) string { return "@@logs\n" + log + "@@state\n" + st
 
 const startedEvent = `{"appName":"x","status":"started","output":{"stdout":"[INFO] Starting app\n","stderr":""}}` + "\n"
 
+// restartedEvent is what app restart prints, whether the app was running or not.
+const restartedEvent = `{"app_name":"x","status":"restarted","output":{"stdout":"[INFO] Starting app\n","stderr":""}}` + "\n"
+
 const twoRunsLog = `[main] Creating virtual environment at: .cache/.venv
 [main] ======== App is starting ============================
 [main] BOARD-TEST FAIL: old
@@ -120,7 +123,7 @@ func TestLastRun(t *testing.T) {
 
 func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	f := (&fakeRunner{}).
-		on(`app start .*bt-x-probe`, startedEvent).
+		on(`app restart .*bt-x-probe`, restartedEvent).
 		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running")).
 		on(`docker ps`, "bt-x-probe-main-1|localhost:23456/app-bricks/python-apps-base:bt-x|abc123\n")
 	res, err := New("x", f, Dev{Tag: "bt-x"}).Run(context.Background(), RunRequest{App: "bt-probe"})
@@ -152,13 +155,13 @@ func TestRunFailsBeforeItsTurnWhenTheHostRegistryIsDown(t *testing.T) {
 	f := &fakeRunner{}
 	b := New("x", f, Dev{Tag: "bt-x"})
 	b.Host = downHost{}
-	if _, err := b.Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 || f.ran(`app start`) {
+	if _, err := b.Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 || f.ran(`app (re)?start`) {
 		t.Errorf("a run must fail without taking a turn: %v %v", err, f.leases)
 	}
 }
 
 func TestRunWithLoadedImagesOpensNoTunnel(t *testing.T) {
-	f := (&fakeRunner{}).on(`app start`, startedEvent).on(`app logs`, poll(twoRunsLog, "running"))
+	f := (&fakeRunner{}).on(`app restart`, restartedEvent).on(`app logs`, poll(twoRunsLog, "running"))
 	if _, err := New("x", f, Dev{Registry: LoadedRegistry, Tag: "bt-x"}).Run(context.Background(), RunRequest{App: "bt-probe"}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +171,7 @@ func TestRunWithLoadedImagesOpensNoTunnel(t *testing.T) {
 }
 
 func TestRunReportsMissingVariables(t *testing.T) {
-	f := (&fakeRunner{}).onExit(`app start .*bt-released-mqtt`, 1, `Error: variable "MQTT_BROKER" is required by brick arduino:mqtt`)
+	f := (&fakeRunner{}).onExit(`app restart .*bt-released-mqtt`, 1, `Error: variable "MQTT_BROKER" is required by brick arduino:mqtt`)
 	res, err := New("x", f, Dev{}).Run(context.Background(), RunRequest{App: "bt-mqtt"})
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +186,7 @@ func TestRunReportsMissingVariables(t *testing.T) {
 
 func TestRunStopsPollingWhenTheContainerExited(t *testing.T) {
 	f := (&fakeRunner{}).
-		on(`app start .*bt-released-crash`, startedEvent).
+		on(`app restart .*bt-released-crash`, restartedEvent).
 		on(`app logs .*bt-released-crash`, poll("[main] ======== App is starting ====\n[main] Traceback: boom\n", "exited"))
 	res, err := New("x", f, Dev{}).Run(context.Background(), RunRequest{App: "bt-crash", TimeoutS: 600})
 	if err != nil {
@@ -200,7 +203,7 @@ func TestRunRefusesExamplesWithSketchUnlessAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Started || !strings.Contains(res.Error, "flash") || f.ran(`app start`) {
+	if res.Started || !strings.Contains(res.Error, "flash") || f.ran(`app (re)?start`) {
 		t.Errorf("expected a refusal without a start, got %+v", res)
 	}
 }
@@ -224,7 +227,7 @@ func TestRunPushesLocalDirUnderTheSessionName(t *testing.T) {
 	if err := mkAppDir(dir); err != nil {
 		t.Fatal(err)
 	}
-	f := (&fakeRunner{}).on(`app start .*bt-x-local`, startedEvent).on(`app logs`, poll(twoRunsLog, "running"))
+	f := (&fakeRunner{}).on(`app restart .*bt-x-local`, restartedEvent).on(`app logs`, poll(twoRunsLog, "running"))
 	res, err := New("x", f, Dev{Tag: "x"}).Run(context.Background(), RunRequest{LocalDir: dir})
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +265,7 @@ func TestExamplesMatchTheBrickIdOrFolder(t *testing.T) {
 }
 
 func TestCleanupTakesATurnAndTouchesOnlyTheSession(t *testing.T) {
-	inventory := "@@apps\n" + `{"apps":[{"name":"bt-mqtt-probe"},{"name":"bt-other-probe"},{"name":"test_cam"}]}` + "\n" +
+	inventory := "@@apps\nbt-mqtt-probe\nbt-other-probe\ntest_cam\n" +
 		"@@containers\nbt-mqtt-probe-main-1|exited\nbt-other-probe-main-1|running\ntest_cam-main-1|exited\n" +
 		"var-lib-arduino-app-cli-examples-bricks-arduino-mqtt-01_basic-main-1|exited\n" +
 		"var-lib-arduino-app-cli-examples-bricks-arduino-mqtt-02_kept-main-1|running\n" +
@@ -315,7 +318,7 @@ func TestCleanupTakesATurnAndTouchesOnlyTheSession(t *testing.T) {
 
 func TestPreflightParsesSections(t *testing.T) {
 	out := "@@hostname\nventunoq\n@@cli\nArduino App CLI version 0.14.0\ndaemon version: 0.14.0\n@@disk\n/dev/x 100 50 20480 60% /\n" +
-		"@@apps\n" + `{"apps":[{"name":"test_cam","status":"stopped"}]}` + "\n@@appdirs\ntest_cam\n" +
+		"@@apps\n" + `{"apps":[{"id":"dXNlcjp0ZXN0X2NhbQ","name":"Test camera","status":"stopped"}]}` + "\n@@appdirs\ntest_cam\n" +
 		"@@containers\nc1|img|Up\n@@images\nlocalhost:24000/app-bricks/python-apps-base:bt-x|1GB\nghcr.io/arduino/app-bricks/python-apps-base:0.13.1|1GB\n" +
 		"@@models\nm1\n@@assets\n0.13.1\n@@video\n/dev/video0\n@@audio\n 0 [UAC2 ]: USB-Audio\n"
 	f := (&fakeRunner{}).on(`@@hostname`, out)
@@ -325,6 +328,9 @@ func TestPreflightParsesSections(t *testing.T) {
 	}
 	if p.Hostname != "ventunoq" || p.CLIVersion != "Arduino App CLI version 0.14.0" || p.DiskFreeMB != 20 {
 		t.Errorf("header: %+v", p)
+	}
+	if len(p.Apps) != 1 || p.Apps[0].Folder != "test_cam" {
+		t.Errorf("an app is named by its folder, not its display name: %+v", p.Apps)
 	}
 	if len(p.Apps) != 1 || len(p.Images) != 2 || len(p.DevImages) != 1 || len(p.VideoDevices) != 1 || len(p.AudioCards) != 1 {
 		t.Errorf("lists: %+v", p)

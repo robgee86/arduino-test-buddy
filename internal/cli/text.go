@@ -133,7 +133,7 @@ func writeSteps(sb *strings.Builder, steps []host.Step) {
 func appNames(apps []board.App) []string {
 	names := make([]string, 0, len(apps))
 	for _, a := range apps {
-		names = append(names, a.Name+"("+a.Status+")")
+		names = append(names, a.Folder+"("+a.Status+")")
 	}
 	return names
 }

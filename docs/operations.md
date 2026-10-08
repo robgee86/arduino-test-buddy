@@ -4,7 +4,7 @@ The operations split by where they run. `up`, `down`, `status`, `push` and `prun
 
 ## Rules every board operation follows
 
-- **Sessions take turns.** `run` and `cleanup` hold the board for their whole duration, queueing for up to `--wait` (default 30 minutes) while another session holds it, and report how long they waited. The turn is an `flock` on the board held by an ssh session whose input the tool owns, so it ends when the tool exits for any reason, `kill -9` included.
+- **Sessions take turns.** `run` and `cleanup` hold the board for their whole duration, queueing for up to `--wait` (default 30 minutes) while another session holds it, and report how long they waited. The turn is an `flock` on the board held by an ssh session whose input the tool owns, so it ends when the tool exits for any reason, `kill -9` included. When that input closes, the board side also ends its own SSH session, which drops any connection the board's Docker still keeps open through the tunnel; on a VENTUNO Q nothing of a killed session remained 3 seconds later.
 - **One App CLI at a time.** Every `arduino-app-cli` call runs under `flock -w 900 /tmp/arduino-test-buddy.lock`, since the CLI corrupts the board when run twice. A CLI typed in a shell on the board, or through `shell`, bypasses the lock.
 - **Session names.** A local test app is stored on the board as `bt-<tag>-<name>`, or `bt-released-<name>` without a tag, so sessions never collide on or remove each other's apps. Apps named `bt-*` by hand before the tool need `cleanup --app <name>`.
 - **What a turn does not cover.** `run --keep` leaves the app running after the turn ends, so the next session may start apps beside it. A session killed while it queues leaves its `ssh` waiting until the board frees up or the wait expires; it then takes the board for an instant and exits.
@@ -50,7 +50,7 @@ Copies the local app folder if given, holds the host registry so a `down` waits 
 - On a failed start, the start output and the brick variables it asked for.
 - How long the session waited for the board.
 
-Test apps default to the `BOARD-TEST SUMMARY` marker, shipped examples to the framework's `App started` line; `--marker` takes any regex for a stronger line. An example with a sketch is refused unless `--allow-flash` is given. A first start that pulls a runner image can take minutes.
+A session's own test app is restarted rather than started, so one left running by a killed session or by `--keep` never blocks the next run; an example already running is reported instead, since it may belong to another session. Test apps default to the `BOARD-TEST SUMMARY` marker, shipped examples to the framework's `App started` line; `--marker` takes any regex for a stronger line. An example with a sketch is refused unless `--allow-flash` is given. A first start that pulls a runner image can take minutes.
 
 ## logs, exec, shell
 
@@ -58,6 +58,6 @@ Test apps default to the `BOARD-TEST SUMMARY` marker, shipped examples to the fr
 
 ## cleanup
 
-Waits for the session's turn, then removes in this order and only this: the session's `bt-<tag>-*` apps and their folders through `app destroy`; the containers with their volumes and the networks of those apps and of the named brick's examples, except an example another session kept running, which is reported; the images of the tag pulled on the board, under any tunnel port; the assets folder of the tag, last.
+Waits for the session's turn, then removes in this order and only this: the session's `bt-<tag>-*` apps and their folders through `app destroy`, found by folder since the CLI names apps after their folders; the containers with their volumes and the networks of those apps and of the named brick's examples, except an example another session kept running, which is reported; the images of the tag pulled on the board, under any tunnel port; the assets folder of the tag, last.
 
 Data written inside shipped example folders is reported, never deleted, since it sits among shipped files. The result lists every step with its output and ends with what the board still holds. `--dry-run` prints the plan without running it. The host registry is untouched: `prune` handles it once the branch is done.

@@ -15,7 +15,9 @@ import (
 
 // App is one entry of the App CLI catalog.
 type App struct {
-	ID      string `json:"id"`
+	ID string `json:"id"`
+	// Folder is what the App CLI calls the app by; Name is only the display name from app.yaml.
+	Folder  string `json:"folder"`
 	Name    string `json:"name"`
 	Status  string `json:"status"`
 	Example bool   `json:"example"`
@@ -59,7 +61,7 @@ func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
 		"hostname":   "hostname",
 		"cli":        "arduino-app-cli version",
 		"disk":       "df -k / | tail -1",
-		"apps":       appCLI(Dev{}, "app", "ps", "-a", "--format", "json"),
+		"apps":       appCLI(Dev{}, "app", "list", "--format", "json"),
 		"appdirs":    shell.Join("ls", "-1", AppsDir),
 		"containers": "docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}|{{.Size}}'",
@@ -120,6 +122,9 @@ func parseApps(jsonText string) ([]App, error) {
 	}
 	if catalog.Apps == nil {
 		return []App{}, nil
+	}
+	for i := range catalog.Apps {
+		catalog.Apps[i].Folder = strings.TrimPrefix(DecodeAppID(catalog.Apps[i].ID), "user:")
 	}
 	return catalog.Apps, nil
 }
