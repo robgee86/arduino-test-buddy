@@ -7,9 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Container states as the status reports them.
@@ -25,16 +29,28 @@ const builderContainer = "buildx_buildkit_" + BuilderName + "0"
 // ErrDown is returned by every operation that needs the registry or the builder while they are powered down.
 var ErrDown = errors.New("arduino-test-buddy is down: run `arduino-test-buddy up` first")
 
-// Status is whether the two containers run, where the data is and how much of it there is.
+// Status is whether the two containers run, where the data is, how much of it there is and how old each tag is.
 type Status struct {
-	Registry string   `json:"registry"`
-	Builder  string   `json:"builder"`
-	URL      string   `json:"url"`
-	Path     string   `json:"path"`
-	SizeMB   int64    `json:"size_mb"`
-	Cache    string   `json:"build_cache,omitempty"`
-	Images   []string `json:"images"`
+	Registry string `json:"registry"`
+	Builder  string `json:"builder"`
+	URL      string `json:"url"`
+	Path     string `json:"path"`
+	SizeMB   int64  `json:"size_mb"`
+	Cache    string `json:"build_cache,omitempty"`
+	// Trimmed is what up or down gave back by dropping build cache no push used for 3 days.
+	Trimmed string `json:"cache_trimmed,omitempty"`
+	Tags    []Tag  `json:"tags"`
 }
+
+// Tag is one tag of the registry, oldest push first, so a forgotten branch stands out.
+type Tag struct {
+	Name   string    `json:"name"`
+	Pushed time.Time `json:"pushed"`
+	Images []string  `json:"images"`
+}
+
+// Stale reports whether no push touched the tag for longer than the build cache keeps its layers.
+func (t Tag) Stale(now time.Time) bool { return now.Sub(t.Pushed) > cacheKeep }
 
 // Up reports whether both containers run.
 func (s *Status) Up() bool { return s.Registry == Running && s.Builder == Running }
@@ -78,7 +94,12 @@ func (h *Host) Up(ctx context.Context) (*Status, error) {
 	if err := h.waitReady(ctx); err != nil {
 		return nil, err
 	}
-	return h.Status(ctx)
+	trim := h.pruneUnused(ctx)
+	st, err := h.Status(ctx)
+	if err == nil {
+		st.Trimmed = field(trim.Output, "Total:")
+	}
+	return st, err
 }
 
 // Down waits for running pushes, runs and prunes to end, then stops both containers; their data stays for the next up.
@@ -89,6 +110,11 @@ func (h *Host) Down(ctx context.Context) (*Status, error) {
 	}
 	defer exclusive.release()
 	registry, builder := h.state(ctx)
+	trimmed := ""
+	if builder == Running {
+		// The end of a working session is a cleanup point too, so a cache nobody pushes to again doesn't stay forever.
+		trimmed = field(h.trimCache(ctx).Output, "Total:")
+	}
 	if registry == Running {
 		if err := h.do(ctx, "stop the registry", "docker", "stop", RegistryName); err != nil {
 			return nil, err
@@ -99,20 +125,17 @@ func (h *Host) Down(ctx context.Context) (*Status, error) {
 			return nil, err
 		}
 	}
-	return h.Status(ctx)
+	st, err := h.Status(ctx)
+	if err == nil {
+		st.Trimmed = trimmed
+	}
+	return st, err
 }
 
-// Status reads the state without starting anything.
+// Status reads the state without starting anything; the tags come from the registry folder, so they show while the tool is down too.
 func (h *Host) Status(ctx context.Context) (*Status, error) {
-	st := &Status{URL: h.url, Path: h.RegistryDir(), SizeMB: dirSizeMB(h.RegistryDir()), Images: []string{}}
+	st := &Status{URL: h.url, Path: h.RegistryDir(), SizeMB: dirSizeMB(h.RegistryDir()), Tags: h.tags()}
 	st.Registry, st.Builder = h.state(ctx)
-	if st.Registry == Running {
-		images, err := h.Images(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		st.Images = images
-	}
 	if st.Builder == Running {
 		out, _ := h.cmd.Run(ctx, "", nil, "docker", "buildx", "du", "--builder", BuilderName)
 		st.Cache = field(out, "Total:")
@@ -131,6 +154,53 @@ func (h *Host) Use(ctx context.Context) (func(), error) {
 		return nil, ErrDown
 	}
 	return shared.release, nil
+}
+
+// tagLink is the file the registry rewrites on every push of a tag: <repo>/_manifests/tags/<tag>/current/link.
+const tagLink = "current/link"
+
+// repositories is where the registry keeps one folder per repository.
+func (h *Host) repositories() string {
+	return filepath.Join(h.RegistryDir(), "docker", "registry", "v2", "repositories")
+}
+
+// tagFile is the file the registry keeps for one repository's tag.
+func (h *Host) tagFile(repo, tag string) string {
+	return filepath.Join(h.repositories(), repo, "_manifests", "tags", tag, tagLink)
+}
+
+// tags reads every tag with the time of its last push from the registry folder; a deleted tag has no folder left.
+func (h *Host) tags() []Tag {
+	root := h.repositories()
+	byName := map[string]*Tag{}
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, "/"+tagLink) {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, strings.TrimSuffix(path, "/"+tagLink))
+		repo, name, ok := strings.Cut(rel, "/_manifests/tags/")
+		info, statErr := d.Info()
+		if !ok || statErr != nil {
+			return nil
+		}
+		t := byName[name]
+		if t == nil {
+			t = &Tag{Name: name}
+			byName[name] = t
+		}
+		t.Images = append(t.Images, repo)
+		if info.ModTime().After(t.Pushed) {
+			t.Pushed = info.ModTime()
+		}
+		return nil
+	})
+	tags := []Tag{}
+	for _, t := range byName {
+		slices.Sort(t.Images)
+		tags = append(tags, *t)
+	}
+	slices.SortFunc(tags, func(a, b Tag) int { return a.Pushed.Compare(b.Pushed) })
+	return tags
 }
 
 // requireUp fails with ErrDown unless both containers run.

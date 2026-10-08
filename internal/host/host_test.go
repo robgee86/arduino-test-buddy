@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeCommander records every command and answers "the registry runs, the builder exists" unless told otherwise.
@@ -153,6 +154,28 @@ func TestFullPushBuildsWithTheToolBuilderAndDropsStaleCache(t *testing.T) {
 	}
 }
 
+func TestPushDatesTheTagEvenWhenNothingChanged(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
+	link := h.tagFile("app-bricks/tps", "main")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.WriteFile(link, []byte("sha256:x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(link, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main"), Targets: []string{"tps"}, SkipWheel: true}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := h.Status(context.Background())
+	if err != nil || len(st.Tags) != 1 || st.Tags[0].Stale(time.Now()) {
+		t.Errorf("a pushed tag must not look stale: %+v %v", st.Tags, err)
+	}
+}
+
 func TestNarrowedPushKeepsTheCache(t *testing.T) {
 	h, cmd, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
 	res, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main"), Targets: []string{"tps"}, SkipWheel: true})
@@ -183,7 +206,7 @@ func TestNothingStartsByItselfWhileDown(t *testing.T) {
 	if err != nil || st.Up() || st.Registry != Stopped || st.Builder != Stopped {
 		t.Errorf("status: %+v %v", st, err)
 	}
-	if cmd.ran("docker start") || cmd.ran("--bootstrap") || cmd.ran("task ") || cmd.ran("buildx du") {
+	if cmd.ran("docker start") || cmd.ran("--bootstrap") || cmd.ran("task ") || cmd.ran("buildx du") || cmd.ran("buildx prune") {
 		t.Errorf("nothing may start or build while down:\n%s", strings.Join(cmd.commands, "\n"))
 	}
 }
@@ -215,13 +238,55 @@ func TestUpStartsStoppedContainersAndDownStopsThem(t *testing.T) {
 	if !cmd.ran("docker start arduino-test-buddy-registry") || !cmd.ran("docker buildx inspect --bootstrap arduino-test-buddy") || cmd.ran("docker run") {
 		t.Errorf("up must start, not recreate:\n%s", strings.Join(cmd.commands, "\n"))
 	}
+	if !cmd.ran("docker buildx prune --builder arduino-test-buddy --force --filter until=72h") {
+		t.Error("up must drop build cache no push used for 3 days")
+	}
 	delete(cmd.answers, "docker ps")
 	delete(cmd.answers, "docker buildx inspect "+BuilderName)
+	cmd.commands = nil
 	if _, err := h.Down(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !cmd.ran("docker stop arduino-test-buddy-registry") || !cmd.ran("docker buildx stop arduino-test-buddy") {
-		t.Errorf("down must stop both:\n%s", strings.Join(cmd.commands, "\n"))
+	trim := slices.IndexFunc(cmd.commands, func(c string) bool { return strings.Contains(c, "buildx prune") })
+	stop := slices.IndexFunc(cmd.commands, func(c string) bool { return strings.Contains(c, "docker buildx stop arduino-test-buddy") })
+	if trim < 0 || stop < 0 || trim > stop || !cmd.ran("docker stop arduino-test-buddy-registry") {
+		t.Errorf("down must trim the cache, then stop both:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestStatusListsTagsOldestFirstFromTheFolderEvenWhileDown(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{})
+	cmd.down()
+	now := time.Now()
+	for _, tc := range []struct {
+		repo, tag string
+		age       time.Duration
+	}{
+		{"app-bricks/python-apps-base", "fresh", time.Hour},
+		{"app-bricks/tps", "fresh", 2 * time.Hour},
+		{"app-bricks/python-apps-base", "forgotten", 30 * 24 * time.Hour},
+	} {
+		link := filepath.Join(h.RegistryDir(), "docker/registry/v2/repositories", tc.repo, "_manifests/tags", tc.tag, "current/link")
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(link, []byte("sha256:x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(link, now.Add(-tc.age), now.Add(-tc.age)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := h.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Tags) != 2 || st.Tags[0].Name != "forgotten" || !st.Tags[0].Stale(now) {
+		t.Fatalf("the forgotten tag must come first and be stale: %+v", st.Tags)
+	}
+	fresh := st.Tags[1]
+	if fresh.Stale(now) || !slices.Equal(fresh.Images, []string{"app-bricks/python-apps-base", "app-bricks/tps"}) || now.Sub(fresh.Pushed) > 90*time.Minute {
+		t.Errorf("a tag's push time is its newest image's: %+v", fresh)
 	}
 }
 

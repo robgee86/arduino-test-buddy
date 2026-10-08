@@ -22,9 +22,9 @@ The result lists every image the registry holds under the tag after the push, so
 
 The tool runs two containers on the developer machine: the registry the boards pull from and the builder, which buildx runs in its own container. Nothing runs until `up`, and neither container restarts with Docker or after a reboot.
 
-- `up` creates what is missing and starts what is stopped, then waits until the registry answers.
-- `down` waits for running pushes, prunes and board runs to end, then stops both. Their data stays for the next `up`.
-- `status` reports both states, the registry folder and its size, the build cache size and the images, and starts nothing.
+- `up` creates what is missing and starts what is stopped, waits until the registry answers, then drops build cache no push used for 3 days.
+- `down` waits for running pushes, prunes and board runs to end, drops build cache no push used for 3 days, then stops both. Their data stays for the next `up`.
+- `status` reports both states, the registry folder and its size, the build cache size, and every tag with its images and last push time, oldest first, marking tags not pushed for 3 days as stale. It reads the tags from the registry folder, so it works while the tool is down, and it starts nothing.
 
 `push`, `prune --tag` and `prune --cache` need the tool up, and so does a `run` that pulls from the host registry; while it is down they fail at once and ask for `up`, before taking a turn on any board. See [disk.md](disk.md).
 

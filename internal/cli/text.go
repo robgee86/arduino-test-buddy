@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/robgee86/arduino-test-buddy/internal/board"
 	"github.com/robgee86/arduino-test-buddy/internal/host"
@@ -45,8 +46,19 @@ func text(v any) string {
 		if r.Cache != "" {
 			fmt.Fprintf(&sb, "build cache: %s\n", r.Cache)
 		}
-		if r.Registry == host.Running {
-			fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
+		if r.Trimmed != "" && r.Trimmed != "0B" {
+			fmt.Fprintf(&sb, "trimmed build cache no push used for 3 days: %s\n", r.Trimmed)
+		}
+		if len(r.Tags) == 0 {
+			sb.WriteString("tags: none\n")
+		}
+		now := time.Now()
+		for _, t := range r.Tags {
+			stale := ""
+			if t.Stale(now) {
+				stale = "  stale: prune --tag " + t.Name
+			}
+			fmt.Fprintf(&sb, "tag %s  pushed %s (%s ago)  images: %d%s\n", t.Name, t.Pushed.Format("2006-01-02 15:04"), age(now.Sub(t.Pushed)), len(t.Images), stale)
 		}
 	case *host.PushResult:
 		fmt.Fprintf(&sb, "tag: %s  revision: %s\n", r.Tag, r.Revision)
@@ -122,6 +134,18 @@ func text(v any) string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+// age prints a duration in the largest whole unit that fits.
+func age(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	case d >= 2*time.Hour:
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	}
 }
 
 func writeSteps(sb *strings.Builder, steps []host.Step) {
