@@ -1,28 +1,34 @@
 # Operations and their guarantees
 
-Every operation targets one board (`--board`) and one session, identified by the dev image tag (`--tag`) and the registry prefix (`--registry`, default the board registry `localhost:5000/`). Without a tag the board runs its released stack. Each operation returns one result, printed as text or as JSON with `--format json`, and the MCP tools return the same result as structured content.
+The operations split by where they run. `push`, `registry` and `prune` act on the developer machine and need no board. The others target one board (`--board`) and one session, named by the dev image tag (`--tag`). Without a tag the board runs its released stack. Each operation returns one result, printed as text or as JSON with `--format json`, and the MCP tools return the same result as structured content.
 
-## Rules every operation follows
+## Rules every board operation follows
 
-- Every `arduino-app-cli` call the tool makes runs under `flock -w 900 /tmp/arduino-test-buddy.lock` on the board, so two tool sessions never run the CLI concurrently. The CLI corrupts the board when run twice. A CLI typed in a shell on the board, or through `shell`, bypasses the lock.
-- Calls that run apps carry `DOCKER_REGISTRY_BASE` and `DOCKER_PYTHON_BASE_IMAGE`; cleanup calls never do, since any call carrying them recreates the assets folder of the tag.
-- Session artifacts are `bt-`-named or carry the session tag. Nothing else is ever removed.
+- **Sessions take turns.** `run` and `cleanup` hold the board for their whole duration, queueing for up to `--wait` (default 30 minutes) while another session holds it, and report how long they waited. The turn is an `flock` on the board held by an ssh session whose input the tool owns, so it ends when the tool exits for any reason, `kill -9` included.
+- **One App CLI at a time.** Every `arduino-app-cli` call runs under `flock -w 900 /tmp/arduino-test-buddy.lock`, since the CLI corrupts the board when run twice. A CLI typed in a shell on the board, or through `shell`, bypasses the lock.
+- **Session names.** A local test app is stored on the board as `bt-<tag>-<name>`, or `bt-released-<name>` without a tag, so sessions never collide on or remove each other's apps. Apps named `bt-*` by hand before the tool need `cleanup --app <name>`.
+- **What a turn does not cover.** `run --keep` leaves the app running after the turn ends, so the next session may start apps beside it. A session killed while it queues leaves its `ssh` waiting until the board frees up or the wait expires; it then takes the board for an instant and exits.
+- **Dev variables only where they belong.** Calls that run apps carry `DOCKER_REGISTRY_BASE` and `DOCKER_PYTHON_BASE_IMAGE`; cleanup calls never do, since any call carrying them recreates the assets folder of the tag.
 
 ## push
 
-Builds on the developer machine from the checkout it is given (`--source`, default the current directory) through the repository's own `task build:bricks` and `task build:containers`, then pushes to the board registry through an SSH tunnel on a free local port. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
+Builds on the developer machine from the checkout it is given (`--source`, default the current directory) through the repository's own `task build:bricks` and `task build:containers PUSH=1`, on the tool's dedicated builder, which pushes straight into the registry. Nothing lands in Docker's own image store. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
 
-By default every container of the bake file is built and pushed, so nothing a brick's compose files name can be missing on the board. `--targets` narrows the build. Docker sends only the layers the registry lacks: the first push of a machine moves everything, afterwards a Python-only rebuild moves the wheel layer and every unchanged image costs a manifest check.
+By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and the build cache the push did not use is dropped at the end. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
 
-Every image carries the commit it was built from in its `org.opencontainers.image.revision` label, with a `-dirty` suffix for an unclean tree. The tag defaults to the branch name made safe for an image tag, or `bt-<short sha>` on a detached HEAD. After the push the host copies, named after the tunnel port, are removed.
+The result lists every image the registry holds under the tag after the push, so a narrowed push also shows what an earlier full push of the tag left. Every image carries the commit it was built from in its `org.opencontainers.image.revision` label, with a `-dirty` suffix for an unclean tree. The tag defaults to the branch name made safe for an image tag; a detached HEAD uses `bt-<worktree folder>`, so parallel worktrees at the same commit never share a tag.
 
 ## registry
 
-Starts the `arduino-test-buddy-registry` container on the board once, bound to loopback with a named volume, a restart policy and manifest deletion enabled, then only reports what it holds. It runs permanently on the board after the first use.
+Starts the registry on the developer machine if it is not running, then reports its address, the folder holding its data, the folder's size and every image it holds. See [disk.md](disk.md).
+
+## prune
+
+Gives back disk on the developer machine, after running pushes end. `--tag` deletes the tag's images and frees the layers no other tag uses; `--cache` empties the build cache; `--all` removes the registry container, its folder and the builder with its cache. It touches nothing outside the tool's registry, folder and builder.
 
 ## preflight
 
-One round trip returning the board state as facts: hostname, CLI version, free disk, apps, app folders, containers, images, which dev images are pulled and which are in the registry for the tag, models, assets folders, video devices and audio cards.
+One round trip returning the board state as facts: hostname, CLI version, free disk, apps, app folders, containers, images, which images of the tag the board already pulled, models, assets folders, video devices and audio cards.
 
 ## examples
 
@@ -30,21 +36,22 @@ Lists the shipped examples of a brick, named by the brick id (`video_object_dete
 
 ## run
 
-Copies the local app folder if given, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The result is the evidence of the run:
+Copies the local app folder if given, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
 
 - The log of this run only, cut at the last `App is starting` line, so an old traceback never shadows a healthy restart.
 - Each container with its image and the revision label the image was built from.
 - Whether the marker appeared, the run timed out, or the app exited first; a crash returns its traceback at once instead of after the timeout.
 - On a failed start, the start output and the brick variables it asked for.
+- How long the session waited for the board.
 
-Test apps default to the `BOARD-TEST SUMMARY` marker, shipped examples to the framework's `App started` line; `--marker` takes any regex for a stronger line. An example with a sketch is refused unless `--allow-flash` is given. The call blocks until the marker or the timeout, and a first start that pulls a runner image can take minutes.
+Test apps default to the `BOARD-TEST SUMMARY` marker, shipped examples to the framework's `App started` line; `--marker` takes any regex for a stronger line. An example with a sketch is refused unless `--allow-flash` is given. A first start that pulls a runner image can take minutes.
 
 ## logs, exec, shell
 
-`logs` returns the app log cut to the last run, or whole with `--all`. `exec` runs a shell command inside a container of the board, `shell` on the board's host OS; both return stdout, stderr and the exit code. Neither is meant for `arduino-app-cli`, which must stay under the lock.
+`logs` returns the app log cut to the last run, or whole with `--all`. `exec` runs a shell command inside a container of the board, `shell` on the board's host OS; both return stdout, stderr and the exit code. Neither is meant for `arduino-app-cli`, which must stay under the lock. None of them takes a turn.
 
 ## cleanup
 
-Removes, in this order and only this: `bt-*` apps and their folders through `app destroy`; the containers with their volumes and the networks of those apps and of the named brick's examples; the images of the session's registry and tag pulled on the board; the tag in the board registry, by tag so a manifest shared with another tag keeps that one; the assets folder of the tag, last. Registry blobs stay until a garbage collection, which is not part of the tool yet.
+Waits for the session's turn, then removes in this order and only this: the session's `bt-<tag>-*` apps and their folders through `app destroy`; the containers with their volumes and the networks of those apps and of the named brick's examples, except an example another session kept running, which is reported; the images of the tag pulled on the board, under any tunnel port; the assets folder of the tag, last.
 
-Data written inside shipped example folders is reported, never deleted, since it sits among shipped files. The result lists every step with its output and ends with what the board still holds. `--dry-run` prints the plan without running it.
+Data written inside shipped example folders is reported, never deleted, since it sits among shipped files. The result lists every step with its output and ends with what the board still holds. `--dry-run` prints the plan without running it. The host registry is untouched: `prune` handles it once the branch is done.

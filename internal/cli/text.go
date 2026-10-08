@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/robgee86/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/host"
 )
 
 // text renders a result compactly for a terminal; anything unknown falls back to JSON.
@@ -18,7 +19,7 @@ func text(v any) string {
 	case *board.Preflight:
 		fmt.Fprintf(&sb, "board: %s (%s)  cli: %s  disk free: %d MB\n", r.Board, r.Hostname, r.CLIVersion, r.DiskFreeMB)
 		if r.Dev.Enabled() {
-			fmt.Fprintf(&sb, "dev tag: %s  pulled: %s  in registry: %s\n", r.Dev.Tag, orNone(r.DevImages), orNone(r.RegistryImages))
+			fmt.Fprintf(&sb, "dev tag: %s  pulled: %s\n", r.Dev.Tag, orNone(r.DevImages))
 		}
 		fmt.Fprintf(&sb, "apps: %s\n", orNone(appNames(r.Apps)))
 		fmt.Fprintf(&sb, "app folders: %s\n", orNone(r.AppFolders))
@@ -34,20 +35,23 @@ func text(v any) string {
 		fmt.Fprintf(&sb, "assets: %s\n", orNone(r.Assets))
 		fmt.Fprintf(&sb, "video: %s\n", orNone(r.VideoDevices))
 		fmt.Fprintf(&sb, "audio: %s\n", orNone(r.AudioCards))
-	case *board.RegistryStatus:
-		fmt.Fprintf(&sb, "registry: %s  created now: %t\n", r.Status, r.Created)
-		fmt.Fprintf(&sb, "session images: %s\n", orNone(r.Images))
-		fmt.Fprintf(&sb, "all images: %s\n", orNone(r.AllImages))
-	case *board.PushResult:
-		fmt.Fprintf(&sb, "tag: %s  registry: %s  revision: %s\n", r.Tag, r.Registry, r.Revision)
-		for _, s := range r.Steps {
-			fmt.Fprintf(&sb, "  %-22s %6.1fs  exit %d\n", s.Name, s.Seconds, s.ExitCode)
-		}
+	case *host.RegistryStatus:
+		fmt.Fprintf(&sb, "registry: %s  created now: %t\n", r.URL, r.Created)
+		fmt.Fprintf(&sb, "data: %s  (%d MB)\n", r.Path, r.SizeMB)
 		fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
-		if r.Error != "" {
+	case *host.PushResult:
+		fmt.Fprintf(&sb, "tag: %s  revision: %s\n", r.Tag, r.Revision)
+		writeSteps(&sb, r.Steps)
+		fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
+		if r.Error != "" && len(r.Steps) > 0 {
 			fmt.Fprintf(&sb, "error: %s\n%s\n", r.Error, indent(r.Steps[len(r.Steps)-1].Output))
+		} else if r.Error != "" {
+			fmt.Fprintf(&sb, "error: %s\n", r.Error)
 		}
-		fmt.Fprintf(&sb, "run with: --tag %s --registry %s\n", r.Tag, r.Registry)
+		fmt.Fprintf(&sb, "run with: --tag %s\n", r.Tag)
+	case *host.PruneResult:
+		writeSteps(&sb, r.Steps)
+		fmt.Fprintf(&sb, "freed: %d MB  registry data: %s (%d MB)\n", r.FreedMB, r.Path, r.SizeMB)
 	case []board.Example:
 		for _, e := range r {
 			flash := ""
@@ -62,6 +66,9 @@ func text(v any) string {
 	case *board.RunResult:
 		fmt.Fprintf(&sb, "app: %s  started: %t  marker found: %t  timed out: %t  stopped: %t  elapsed: %.0fs\n",
 			r.App, r.Started, r.MarkerFound, r.TimedOut, r.Stopped, r.ElapsedS)
+		if r.WaitedS >= 1 {
+			fmt.Fprintf(&sb, "waited for the board: %.0fs\n", r.WaitedS)
+		}
 		if r.Error != "" {
 			fmt.Fprintf(&sb, "error: %s\n", r.Error)
 		}
@@ -92,8 +99,8 @@ func text(v any) string {
 			sb.WriteString("nothing to remove\n")
 		}
 		rem := r.Remaining
-		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | registry %s | assets %s\n",
-			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.RegistryImages), orNone(rem.Assets))
+		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | assets %s\n",
+			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.Assets))
 		if len(rem.ExampleLeftovers) > 0 {
 			fmt.Fprintf(&sb, "example leftovers: %s\n", strings.Join(rem.ExampleLeftovers, ", "))
 		}
@@ -106,6 +113,12 @@ func text(v any) string {
 		sb.WriteString("\n")
 	}
 	return sb.String()
+}
+
+func writeSteps(sb *strings.Builder, steps []host.Step) {
+	for _, s := range steps {
+		fmt.Fprintf(sb, "  %-30s %6.1fs  exit %d\n", s.Name, s.Seconds, s.ExitCode)
+	}
 }
 
 func appNames(apps []board.App) []string {

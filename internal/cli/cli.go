@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Arduino s.r.l. and/or its affiliated companies
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package cli is the human entry point; every command maps to one board operation and prints its result.
+// Package cli is the human entry point; every command maps to one operation on the board or the developer machine and prints its result.
 package cli
 
 import (
@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/robgee86/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/host"
 	"github.com/robgee86/arduino-test-buddy/internal/mcpserver"
 	"github.com/robgee86/arduino-test-buddy/internal/version"
 )
@@ -25,6 +26,7 @@ type options struct {
 	tag      string
 	registry string
 	format   string
+	wait     time.Duration
 }
 
 // New builds the root command with every subcommand attached.
@@ -40,11 +42,12 @@ func New() *cobra.Command {
 	pf := root.PersistentFlags()
 	pf.StringVar(&opts.board, "board", os.Getenv("ARDUINO_BOARD"), "SSH alias or user@host of the board (env ARDUINO_BOARD)")
 	pf.StringVar(&opts.tag, "tag", os.Getenv("ARDUINO_BOARD_TAG"), "tag of the session's dev images; empty runs the released stack (env ARDUINO_BOARD_TAG)")
-	pf.StringVar(&opts.registry, "registry", board.BoardRegistry, "registry prefix of the dev images; "+board.LoadedRegistry+" for images loaded by hand")
+	pf.StringVar(&opts.registry, "registry", "", "registry prefix of the dev images; empty pulls from the host registry through a tunnel, "+board.LoadedRegistry+" for images loaded by hand")
 	pf.StringVar(&opts.format, "format", "text", "output format: text or json")
+	pf.DurationVar(&opts.wait, "wait", board.DefaultWait, "how long run and cleanup queue for their turn on a busy board")
 
 	root.AddCommand(
-		preflightCmd(opts), registryCmd(opts), pushCmd(opts), examplesCmd(opts), runCmd(opts), logsCmd(opts),
+		pushCmd(opts), registryCmd(opts), pruneCmd(opts), preflightCmd(opts), examplesCmd(opts), runCmd(opts), logsCmd(opts),
 		execCmd(opts), shellCmd(opts), cleanupCmd(opts), mcpCmd(opts),
 	)
 	return root
@@ -54,7 +57,29 @@ func (o *options) target() (*board.Board, error) {
 	if o.board == "" {
 		return nil, fmt.Errorf("no board given: pass --board or set ARDUINO_BOARD")
 	}
-	return board.New(o.board, board.SSH{Target: o.board}, board.Dev{Registry: o.registry, Tag: o.tag}), nil
+	b := board.New(o.board, board.SSH{Target: o.board}, board.Dev{Registry: o.registry, Tag: o.tag})
+	b.Wait = o.wait
+	return b, nil
+}
+
+// hostCmd runs one operation on the developer machine and prints its result.
+func (o *options) hostCmd(use, short string, op func(context.Context, *host.Host) (any, error)) *cobra.Command {
+	return &cobra.Command{
+		Use:   use,
+		Short: short,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			h, err := host.New()
+			if err != nil {
+				return err
+			}
+			res, err := op(cmd.Context(), h)
+			if err != nil {
+				return err
+			}
+			return o.print(cmd.OutOrStdout(), res)
+		},
+	}
 }
 
 func (o *options) print(w io.Writer, v any) error {
@@ -87,47 +112,33 @@ func preflightCmd(o *options) *cobra.Command {
 }
 
 func registryCmd(o *options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "registry",
-		Short: "Start the board registry if needed and list what it holds",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			b, err := o.target()
-			if err != nil {
-				return err
-			}
-			res, err := b.EnsureRegistry(cmd.Context())
-			if err != nil {
-				return err
-			}
-			return o.print(cmd.OutOrStdout(), res)
-		},
-	}
+	return o.hostCmd("registry", "Start the registry on this machine if needed and show where its data is, its size and its images",
+		func(ctx context.Context, h *host.Host) (any, error) { return h.EnsureRegistry(ctx) })
 }
 
 func pushCmd(o *options) *cobra.Command {
-	req := board.PushRequest{}
-	cmd := &cobra.Command{
-		Use:   "push",
-		Short: "Build the wheel and the images of a checkout, push them to the board registry through an SSH tunnel",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			b, err := o.target()
-			if err != nil {
-				return err
-			}
+	req := host.PushRequest{}
+	cmd := o.hostCmd("push", "Build the wheel and the images of a checkout on this machine and push them to its registry",
+		func(ctx context.Context, h *host.Host) (any, error) {
 			req.Tag = o.tag
-			res, err := b.Push(cmd.Context(), req)
-			if err != nil {
-				return err
-			}
-			return o.print(cmd.OutOrStdout(), res)
-		},
-	}
+			return h.Push(ctx, req)
+		})
 	f := cmd.Flags()
 	f.StringVar(&req.Source, "source", ".", "app-bricks-py checkout to build from")
 	f.StringSliceVar(&req.Targets, "targets", nil, "bake targets to build and push, default every container")
 	f.BoolVar(&req.SkipWheel, "skip-wheel", false, "reuse dist/ instead of rebuilding the wheel")
+	return cmd
+}
+
+func pruneCmd(o *options) *cobra.Command {
+	req := host.PruneRequest{}
+	cmd := o.hostCmd("prune", "Give back disk on this machine: a tag's images (--tag), the build cache (--cache) or everything the tool created (--all)",
+		func(ctx context.Context, h *host.Host) (any, error) {
+			req.Tag = o.tag
+			return h.Prune(ctx, req)
+		})
+	cmd.Flags().BoolVar(&req.Cache, "cache", false, "empty the tool's build cache")
+	cmd.Flags().BoolVar(&req.All, "all", false, "remove the registry, its folder and the builder with its cache")
 	return cmd
 }
 
@@ -286,7 +297,7 @@ func mcpCmd(o *options) *cobra.Command {
 		Short: "Serve the same operations as MCP tools over stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			defaults := mcpserver.Defaults{Board: o.board, Tag: o.tag, Registry: o.registry}
+			defaults := mcpserver.Defaults{Board: o.board, Tag: o.tag, Registry: o.registry, Wait: o.wait}
 			return mcpserver.Serve(cmd.Context(), defaults)
 		},
 	}

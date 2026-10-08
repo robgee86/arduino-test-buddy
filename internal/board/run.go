@@ -37,7 +37,7 @@ var (
 
 // RunRequest describes one bounded run of an app or example.
 type RunRequest struct {
-	App         string        `json:"app" jsonschema:"app name under ArduinoApps, or examples:<path> for a shipped example"`
+	App         string        `json:"app" jsonschema:"app name, stored on the board as bt-<tag>-<name>, or examples:<path> for a shipped example"`
 	LocalDir    string        `json:"local_dir,omitempty" jsonschema:"local app folder to copy to the board first; its base name becomes the app name"`
 	Marker      string        `json:"marker,omitempty" jsonschema:"regex that ends the run when it appears in the log of this run; default BOARD-TEST SUMMARY"`
 	Timeout     time.Duration `json:"-"`
@@ -56,6 +56,8 @@ type Container struct {
 // RunResult is the evidence of one run: what started, what the log of this run says and what ran it.
 type RunResult struct {
 	App              string      `json:"app"`
+	Registry         string      `json:"registry,omitempty"`
+	WaitedS          float64     `json:"waited_for_board_seconds"`
 	Started          bool        `json:"started"`
 	StartLog         string      `json:"start_log"`
 	Error            string      `json:"error,omitempty"`
@@ -69,24 +71,25 @@ type RunResult struct {
 	Stopped          bool        `json:"stopped"`
 }
 
-// Run starts the app, waits for the marker in the log of this run only, records the containers and stops the app.
+// Run waits for the session's turn on the board, starts the app, waits for the marker in the log of this run only, records the containers and stops the app.
 func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	if req.LocalDir != "" {
 		if _, err := os.Stat(filepath.Join(req.LocalDir, "app.yaml")); err != nil {
 			return nil, fmt.Errorf("%s is not an app folder: no app.yaml", req.LocalDir)
 		}
-		name := filepath.Base(filepath.Clean(req.LocalDir))
-		if req.App != "" && req.App != name {
+		name := b.SessionApp(filepath.Base(filepath.Clean(req.LocalDir)))
+		if req.App != "" && b.SessionApp(req.App) != name {
 			return nil, fmt.Errorf("app %q does not match the folder name %q", req.App, name)
 		}
 		req.App = name
-		if err := b.runner.Push(ctx, req.LocalDir, AppsDir); err != nil {
+		if err := b.runner.Push(ctx, req.LocalDir, AppsDir+"/"+name); err != nil {
 			return nil, err
 		}
 	}
 	if req.App == "" {
 		return nil, fmt.Errorf("app name required")
 	}
+	req.App = b.SessionApp(req.App)
 	if req.Marker == "" {
 		req.Marker = DefaultMarker
 		if IsExample(req.App) {
@@ -105,22 +108,34 @@ func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		timeout = 120 * time.Second
 	}
 	res := &RunResult{App: req.App, Marker: req.Marker, Containers: []Container{}}
+	waited, err := b.withTurn(ctx, true, func(dev Dev) error {
+		res.Registry = dev.Registry
+		return b.run1(ctx, dev, req, marker, timeout, res)
+	})
+	res.WaitedS = waited
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
 
+// run1 is one run inside the session's turn.
+func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regexp.Regexp, timeout time.Duration, res *RunResult) error {
 	if IsExample(req.App) && !req.AllowFlash {
 		out, err := b.run(ctx, shell.Join("test", "-d", examplePath(req.App)+"/sketch"))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if out.OK() {
 			res.Error = "example has a sketch and would flash the MCU; set allow_flash to run it"
-			return res, nil
+			return nil
 		}
 	}
 
 	begin := time.Now()
-	start, err := b.run(ctx, b.appCLI(true, "app", "start", appRef(req.App), "--format", "json-lines"))
+	start, err := b.run(ctx, appCLI(dev, "app", "start", appRef(req.App), "--format", "json-lines"))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	res.StartLog, res.Started = parseStartEvent(start)
 	if !res.Started {
@@ -130,18 +145,18 @@ func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		}
 		res.MissingVariables = missingVariables(res.StartLog + "\n" + start.Stderr)
 		res.ElapsedS = time.Since(begin).Seconds()
-		return res, nil
+		return nil
 	}
 
 	deadline := time.Now().Add(timeout)
 	poll := sectioned(map[string]string{
-		"logs":  b.appCLI(true, "app", "logs", appRef(req.App), "--tail", logTail),
+		"logs":  appCLI(dev, "app", "logs", appRef(req.App), "--tail", logTail),
 		"state": shell.Join("docker", "ps", "-a", "--filter", "name=^"+containerPrefix(req.App)+"-", "--format", "{{.State}}"),
 	}, []string{"logs", "state"})
 	for {
 		out, err := b.run(ctx, poll)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		s := parseSections(out.Stdout)
 		res.Log = LastRun(s["logs"])
@@ -159,29 +174,28 @@ func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(pollInterval):
 		}
 	}
 	res.ElapsedS = time.Since(begin).Seconds()
 
-	res.Containers, err = b.containers(ctx, req.App)
-	if err != nil {
-		return nil, err
+	if res.Containers, err = b.containers(ctx, req.App); err != nil {
+		return err
 	}
 	if !req.KeepRunning {
-		stop, err := b.run(ctx, b.appCLI(true, "app", "stop", appRef(req.App)))
+		stop, err := b.run(ctx, appCLI(dev, "app", "stop", appRef(req.App)))
 		if err != nil {
-			return nil, err
+			return err
 		}
 		res.Stopped = stop.OK()
 	}
-	return res, nil
+	return nil
 }
 
 // Logs returns the app log, by default only the part written since the last start.
 func (b *Board) Logs(ctx context.Context, app string, tail int, all bool) (string, error) {
-	out, err := b.run(ctx, b.appCLI(true, "app", "logs", appRef(app), "--tail", strconv.Itoa(tail)))
+	out, err := b.run(ctx, appCLI(b.Dev, "app", "logs", appRef(b.SessionApp(app)), "--tail", strconv.Itoa(tail)))
 	if err != nil {
 		return "", err
 	}

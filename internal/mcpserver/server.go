@@ -7,10 +7,12 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/robgee86/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/host"
 	"github.com/robgee86/arduino-test-buddy/internal/version"
 )
 
@@ -19,13 +21,14 @@ type Defaults struct {
 	Board    string
 	Tag      string
 	Registry string
+	Wait     time.Duration
 }
 
 // Target names the board and the dev images every tool acts on.
 type Target struct {
 	Board    string `json:"board,omitempty" jsonschema:"SSH alias or user@host of the board; defaults to the server's --board"`
 	Tag      string `json:"tag,omitempty" jsonschema:"tag of the session's dev images; empty runs the released stack"`
-	Registry string `json:"registry,omitempty" jsonschema:"registry prefix of the dev images; default the board registry localhost:5000/, dev.local/ for images loaded by hand"`
+	Registry string `json:"registry,omitempty" jsonschema:"registry prefix of the dev images; default the host registry through a tunnel, dev.local/ for images loaded by hand"`
 }
 
 func (d Defaults) board(t Target) (*board.Board, error) {
@@ -42,19 +45,16 @@ func (d Defaults) board(t Target) (*board.Board, error) {
 	if name == "" {
 		return nil, fmt.Errorf("no board given: pass board or start the server with --board")
 	}
-	return board.New(name, board.SSH{Target: name}, board.Dev{Registry: registry, Tag: tag}), nil
+	b := board.New(name, board.SSH{Target: name}, board.Dev{Registry: registry, Tag: tag})
+	if d.Wait > 0 {
+		b.Wait = d.Wait
+	}
+	return b, nil
 }
 
 type preflightIn struct{ Target }
 
-type registryIn struct{ Target }
-
-type pushIn struct {
-	Target
-	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container of the bake file, which costs a full build once per machine and a manifest check per unchanged image afterwards"`
-	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
-}
+type registryIn struct{}
 
 type examplesIn struct {
 	Target
@@ -127,25 +127,41 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_registry",
-		Description: "Start the registry container on the board if it is not running and list the images it holds, with the session tag's ones apart.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in registryIn) (*mcp.CallToolResult, *board.RegistryStatus, error) {
-		b, err := d.board(in.Target)
+		Description: "On the developer machine: start the image registry the boards pull from if it is not running, and show the folder holding its data, its size and its images.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ registryIn) (*mcp.CallToolResult, *host.RegistryStatus, error) {
+		h, err := host.New()
 		if err != nil {
 			return nil, nil, err
 		}
-		out, err := b.EnsureRegistry(ctx)
+		out, err := h.EnsureRegistry(ctx)
 		return nil, out, err
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_push",
-		Description: "On the developer machine: build the wheel and every container image of an app-bricks-py checkout, then push them to the board registry through an SSH tunnel so only changed layers travel. Returns the tag and registry to pass to board_run, the git revision stamped into the images and per-step timings. The first push of a machine builds and moves everything, minutes and several GB; later pushes cost a manifest check per unchanged image.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in pushIn) (*mcp.CallToolResult, *board.PushResult, error) {
-		b, err := d.board(in.Target)
+		Description: "On the developer machine: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops the build cache of images no longer built.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in host.PushRequest) (*mcp.CallToolResult, *host.PushResult, error) {
+		h, err := host.New()
 		if err != nil {
 			return nil, nil, err
 		}
-		out, err := b.Push(ctx, board.PushRequest{Source: in.Source, Tag: b.Dev.Tag, Targets: in.Targets, SkipWheel: in.SkipWheel})
+		if in.Tag == "" {
+			in.Tag = d.Tag
+		}
+		out, err := h.Push(ctx, in)
+		return nil, out, err
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "board_prune",
+		Description: "On the developer machine, after running pushes end: delete one tag's images from the registry and free the layers no other tag uses, empty the tool's build cache, or remove everything the tool created there. Touches nothing outside the tool's registry, folder and builder.",
+		Annotations: destructive,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in host.PruneRequest) (*mcp.CallToolResult, *host.PruneResult, error) {
+		h, err := host.New()
+		if err != nil {
+			return nil, nil, err
+		}
+		out, err := h.Prune(ctx, in)
 		return nil, out, err
 	})
 
@@ -167,7 +183,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_run",
-		Description: "Copy an app folder if given, start the app or example with the session's dev images, wait until the marker appears in the log of this run or the timeout passes, record each container with its image and build revision, then stop the app unless keep_running. A failed start returns the start output and any brick variables it asked for.",
+		Description: "Wait for this session's turn on the board, copy an app folder if given, start the app or example with the session's dev images pulled from the host registry through a tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image and build revision, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, *board.RunResult, error) {
 		b, err := d.board(in.Target)
 		if err != nil {
@@ -223,7 +239,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_cleanup",
-		Description: "Remove only what the session owns: bt-* apps and their folders, the containers with their volumes and the networks of bt-* apps and of the brick's examples, the images of the dev tag, and the assets folder of the tag last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
+		Description: "Wait for this session's turn, then remove only what it owns: its bt-<tag>-* apps and their folders, the containers with their volumes and the networks of those apps and of the brick's examples unless another session kept one running, the images of the tag pulled on the board, and the assets folder of the tag, last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
 		Annotations: destructive,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cleanupIn) (*mcp.CallToolResult, *board.CleanupReport, error) {
 		b, err := d.board(in.Target)

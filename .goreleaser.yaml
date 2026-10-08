@@ -7,16 +7,14 @@ builds:
     binary: arduino-test-buddy
     env:
       - CGO_ENABLED=0
-    goos: [darwin, linux, windows]
+    # Windows developers use WSL, where the linux build applies; the cache lock relies on Unix file locks.
+    goos: [darwin, linux]
     goarch: [amd64, arm64]
     ldflags:
       - -s -w -X github.com/robgee86/arduino-test-buddy/internal/version.Version={{.Version}}
 
 archives:
   - formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
 
 checksum:
   name_template: checksums.txt

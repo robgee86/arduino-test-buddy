@@ -6,9 +6,13 @@ package board
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/robgee86/arduino-test-buddy/internal/host"
 	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
@@ -27,7 +31,7 @@ const (
 	LoadedRegistry = "dev.local/"
 )
 
-// Dev names the development images a session runs on; an empty Tag means the released stack.
+// Dev names the development images a session runs on; an empty Tag means the released stack, an empty Registry the host registry through a tunnel.
 type Dev struct {
 	Registry string `json:"registry,omitempty"`
 	Tag      string `json:"tag,omitempty"`
@@ -36,35 +40,57 @@ type Dev struct {
 // Enabled reports whether the session targets development images.
 func (d Dev) Enabled() bool { return d.Tag != "" }
 
-func (d Dev) registry() string {
-	if d.Registry == "" {
-		return BoardRegistry
-	}
-	return d.Registry
-}
+// tunneled reports whether the images come from the host registry, reached through the lease's tunnel.
+func (d Dev) tunneled() bool { return d.Enabled() && d.Registry == "" }
 
-// Env returns the variables the App CLI reads to resolve the Python base image.
+// Env returns the variables the App CLI reads to resolve the Python base image; outside a lease the host registry has no port on the board, which only matters to calls that pull.
 func (d Dev) Env() []string {
 	if !d.Enabled() {
 		return nil
 	}
+	registry := d.Registry
+	if registry == "" {
+		registry = host.RegistryPrefix
+	}
 	return []string{
-		"DOCKER_REGISTRY_BASE=" + d.registry(),
+		"DOCKER_REGISTRY_BASE=" + registry,
 		"DOCKER_PYTHON_BASE_IMAGE=app-bricks/python-apps-base:" + d.Tag,
 	}
 }
+
+// DefaultWait is how long a session queues for its turn on a busy board.
+const DefaultWait = 30 * time.Minute
 
 // Board is one reachable board plus the images a session runs on.
 type Board struct {
 	Name   string
 	Dev    Dev
+	Wait   time.Duration
 	runner Runner
 	mu     sync.Mutex
 }
 
 // New wires a board to its runner.
 func New(name string, runner Runner, dev Dev) *Board {
-	return &Board{Name: name, Dev: dev, runner: runner}
+	return &Board{Name: name, Dev: dev, Wait: DefaultWait, runner: runner}
+}
+
+// withTurn runs fn while the session holds the board; with forward, the images are pulled from the host registry through the tunnel of the turn.
+func (b *Board) withTurn(ctx context.Context, forward bool, fn func(dev Dev) error) (float64, error) {
+	hostPort := ""
+	if forward && b.Dev.tunneled() {
+		hostPort = host.RegistryPort
+	}
+	lease, err := b.runner.Lease(ctx, hostPort, b.Wait)
+	if err != nil {
+		return 0, err
+	}
+	defer lease.Close()
+	dev := b.Dev
+	if lease.Port != 0 {
+		dev.Registry = fmt.Sprintf("localhost:%d/", lease.Port)
+	}
+	return lease.WaitedS, fn(dev)
 }
 
 // run executes one script; calls from the same process never overlap.
@@ -74,17 +100,49 @@ func (b *Board) run(ctx context.Context, script string) (Output, error) {
 	return b.runner.Run(ctx, script)
 }
 
-// appCLI builds a serialized App CLI call; withDev adds the dev-image variables, which must be absent at cleanup since any call carrying them recreates the assets folder.
-func (b *Board) appCLI(withDev bool, args ...string) string {
+// appCLI builds a serialized App CLI call with the variables of dev; cleanup passes none, since any call carrying them recreates the assets folder.
+func appCLI(dev Dev, args ...string) string {
 	words := []string{"flock", "-w", lockTimeout, lockFile}
-	if withDev && b.Dev.Enabled() {
-		words = append(words, "env")
-		words = append(words, b.Dev.Env()...)
+	if env := dev.Env(); env != nil {
+		words = append(append(words, "env"), env...)
 	}
 	words = append(words, "arduino-app-cli")
 	words = append(words, args...)
 	return shell.Join(words...)
 }
+
+// SessionApp is the board name of a local test app, bt-<tag>-<name> or bt-released-<name> without a tag, so sessions sharing a board never collide on or remove each other's apps.
+func (b *Board) SessionApp(name string) string {
+	if IsExample(name) || strings.HasPrefix(name, b.sessionPrefix()) {
+		return name
+	}
+	return b.sessionPrefix() + strings.TrimPrefix(name, testPrefix)
+}
+
+// releasedSession names the session of a run on the released stack, so it never sweeps a tagged session's apps.
+const releasedSession = "released"
+
+// sessionPrefix starts every app the session owns.
+func (b *Board) sessionPrefix() string {
+	session := releasedSession
+	if b.Dev.Enabled() {
+		session = strings.ReplaceAll(strings.TrimPrefix(b.Dev.Tag, testPrefix), ".", "-")
+	}
+	return testPrefix + session + "-"
+}
+
+// isDevImage matches only this session's tag, under its registry prefix or any tunnel port of the host registry.
+func (b *Board) isDevImage(ref string) bool {
+	if !b.Dev.Enabled() || !strings.HasSuffix(ref, ":"+b.Dev.Tag) {
+		return false
+	}
+	if b.Dev.tunneled() {
+		return tunnelImageRE.MatchString(ref)
+	}
+	return strings.HasPrefix(ref, b.Dev.Registry)
+}
+
+var tunnelImageRE = regexp.MustCompile(`^localhost:[0-9]+/app-bricks/`)
 
 // IsExample reports whether app names a shipped example rather than a user app.
 func IsExample(app string) bool { return strings.HasPrefix(app, "examples:") }

@@ -22,7 +22,7 @@ type Example struct {
 // Examples lists the shipped examples of a brick, named by its id (video_object_detection) or its folder (video_objectdetection); an empty brick lists them all.
 func (b *Board) Examples(ctx context.Context, brick string) ([]Example, error) {
 	commands := map[string]string{
-		"list":   b.appCLI(false, "app", "list", "--examples", "--format", "json"),
+		"list":   appCLI(Dev{}, "app", "list", "--examples", "--format", "json"),
 		"sketch": shell.Join("find", ExamplesDir, "-maxdepth", "5", "-type", "d", "-name", "sketch"),
 	}
 	order := []string{"list", "sketch"}

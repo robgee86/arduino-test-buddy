@@ -19,7 +19,7 @@ const testPrefix = "bt-"
 // CleanupRequest scopes a cleanup to one session: its apps, one brick's examples and the session's images.
 type CleanupRequest struct {
 	Brick  string   `json:"brick,omitempty" jsonschema:"brick whose example containers and networks are removed, e.g. video_objectdetection"`
-	Apps   []string `json:"apps,omitempty" jsonschema:"extra user apps to destroy besides the bt-* ones"`
+	Apps   []string `json:"apps,omitempty" jsonschema:"extra user apps to destroy besides the session's bt-<tag>-* ones"`
 	DryRun bool     `json:"dry_run,omitempty" jsonschema:"list the steps without running them"`
 }
 
@@ -36,9 +36,9 @@ type Remaining struct {
 	Containers       []string `json:"containers"`
 	Networks         []string `json:"networks"`
 	DevImages        []string `json:"dev_images"`
-	RegistryImages   []string `json:"registry_images"`
 	Assets           []string `json:"assets"`
 	ExampleLeftovers []string `json:"example_leftovers"`
+	running          map[string]bool
 }
 
 // CleanupReport lists what was removed and what remains.
@@ -48,8 +48,18 @@ type CleanupReport struct {
 	Warnings  []string  `json:"warnings"`
 }
 
-// Cleanup removes the session's artifacts and nothing else, then reports what is left.
+// Cleanup waits for the session's turn, removes the session's artifacts and nothing else, then reports what is left.
 func (b *Board) Cleanup(ctx context.Context, req CleanupRequest) (*CleanupReport, error) {
+	var report *CleanupReport
+	_, err := b.withTurn(ctx, false, func(Dev) error {
+		var err error
+		report, err = b.cleanup(ctx, req)
+		return err
+	})
+	return report, err
+}
+
+func (b *Board) cleanup(ctx context.Context, req CleanupRequest) (*CleanupReport, error) {
 	state, err := b.inventory(ctx, req.Brick)
 	if err != nil {
 		return nil, err
@@ -72,11 +82,14 @@ func (b *Board) Cleanup(ctx context.Context, req CleanupRequest) (*CleanupReport
 		}
 		report.Remaining = state
 	}
+	if kept := b.keptRunning(req.Brick, state); len(kept) > 0 {
+		report.Warnings = append(report.Warnings, "left running, another session kept it: "+strings.Join(kept, ", "))
+	}
 	if len(state.ExampleLeftovers) > 0 {
 		report.Warnings = append(report.Warnings, "example folders hold data written by runs; they sit among shipped files and are left for you to decide")
 	}
 	if !b.Dev.Enabled() {
-		report.Warnings = append(report.Warnings, "no dev tag given: images and assets were not touched")
+		report.Warnings = append(report.Warnings, "no dev tag given: only bt-released-* apps were in scope, images and assets were not touched")
 	}
 	return report, nil
 }
@@ -100,23 +113,29 @@ func (b *Board) appSteps(req CleanupRequest, state Remaining) []Step {
 		apps[a] = true
 	}
 	for _, a := range state.Apps {
-		if strings.HasPrefix(a, testPrefix) {
+		if strings.HasPrefix(a, b.sessionPrefix()) {
 			apps[a] = true
 		}
 	}
 	for _, a := range sorted(apps) {
 		steps = append(steps,
-			step("destroy app "+a, b.appCLI(false, "app", "destroy", appRef(a))),
+			step("destroy app "+a, appCLI(Dev{}, "app", "destroy", appRef(a))),
 			step("remove app folder "+a, shell.Join("rm", "-rf", AppsDir+"/"+a)))
 	}
 	return steps
 }
 
-// dockerSteps removes what the App CLI leaves behind, scoped by construction to the session's names, tag and registry.
+// dockerSteps removes what the App CLI leaves behind, scoped by construction to the session's names and tag; an example another session kept running stays.
 func (b *Board) dockerSteps(req CleanupRequest, state Remaining) []Step {
 	var steps []Step
-	owned := sessionPattern(req.Brick)
-	if names := matching(state.Containers, owned); len(names) > 0 {
+	owned := b.sessionPattern(req.Brick)
+	var stale []string
+	for _, n := range matching(state.Containers, owned) {
+		if strings.HasPrefix(n, b.sessionPrefix()) || !state.running[n] {
+			stale = append(stale, n)
+		}
+	}
+	if names := stale; len(names) > 0 {
 		steps = append(steps, step("remove containers with their volumes", shell.Join(append([]string{"docker", "rm", "-f", "-v"}, names...)...)))
 	}
 	if names := matching(state.Networks, owned); len(names) > 0 {
@@ -125,9 +144,6 @@ func (b *Board) dockerSteps(req CleanupRequest, state Remaining) []Step {
 	if b.Dev.Enabled() {
 		if len(state.DevImages) > 0 {
 			steps = append(steps, step("remove the session's images", shell.Join(append([]string{"docker", "rmi"}, state.DevImages...)...)))
-		}
-		for _, ref := range state.RegistryImages {
-			steps = append(steps, step("delete "+ref+" from the board registry", registryDeleteScript(ref)))
 		}
 		for _, a := range state.Assets {
 			steps = append(steps, step("remove assets folder "+a, shell.Join("rm", "-rf", AssetsDir+"/"+a)))
@@ -143,8 +159,8 @@ func step(description, command string) Step {
 // inventory lists the artifacts a session may own; the assets and images lists are already scoped to the session tag.
 func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) {
 	commands := map[string]string{
-		"apps":       b.appCLI(false, "app", "ps", "-a", "--format", "json"),
-		"containers": "docker ps -a --format '{{.Names}}'",
+		"apps":       appCLI(Dev{}, "app", "ps", "-a", "--format", "json"),
+		"containers": "docker ps -a --format '{{.Names}}|{{.State}}'",
 		"networks":   "docker network ls --format '{{.Name}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}'",
 		"assets":     shell.Join("ls", "-1", AssetsDir),
@@ -161,7 +177,8 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 	s := parseSections(out.Stdout)
 	state := Remaining{
 		Apps:             []string{},
-		Containers:       lines(s["containers"]),
+		Containers:       []string{},
+		running:          map[string]bool{},
 		Networks:         userNetworks(lines(s["networks"])),
 		DevImages:        []string{},
 		Assets:           []string{},
@@ -184,11 +201,10 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 			state.Assets = append(state.Assets, a)
 		}
 	}
-	if state.RegistryImages, err = b.registryImagesForTag(ctx); err != nil {
-		return Remaining{}, err
-	}
-	if state.Containers == nil {
-		state.Containers = []string{}
+	for _, l := range lines(s["containers"]) {
+		name, st, _ := strings.Cut(l, "|")
+		state.Containers = append(state.Containers, name)
+		state.running[name] = st == "running"
 	}
 	if state.Networks == nil {
 		state.Networks = []string{}
@@ -210,13 +226,24 @@ func userNetworks(names []string) []string {
 	return out
 }
 
-// sessionPattern matches the containers and networks of bt-* apps and, when given, of one brick's examples.
-func sessionPattern(brick string) *regexp.Regexp {
-	pattern := "^" + regexp.QuoteMeta(testPrefix)
+// sessionPattern matches the containers and networks of the session's apps and, when given, of one brick's examples.
+func (b *Board) sessionPattern(brick string) *regexp.Regexp {
+	pattern := "^" + regexp.QuoteMeta(b.sessionPrefix())
 	if brick != "" {
-		pattern = "^(" + regexp.QuoteMeta(testPrefix) + "|" + regexp.QuoteMeta(containerPrefix("examples:bricks/arduino/"+brick)) + "-)"
+		pattern = "^(" + regexp.QuoteMeta(b.sessionPrefix()) + "|" + regexp.QuoteMeta(containerPrefix("examples:bricks/arduino/"+brick)) + "-)"
 	}
 	return regexp.MustCompile(pattern)
+}
+
+// keptRunning lists the brick's example containers still running, which another session left on purpose.
+func (b *Board) keptRunning(brick string, state Remaining) []string {
+	var kept []string
+	for _, n := range matching(state.Containers, b.sessionPattern(brick)) {
+		if state.running[n] && !strings.HasPrefix(n, b.sessionPrefix()) {
+			kept = append(kept, n)
+		}
+	}
+	return kept
 }
 
 func matching(names []string, re *regexp.Regexp) []string {

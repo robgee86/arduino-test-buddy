@@ -36,21 +36,20 @@ type ImageInfo struct {
 
 // Preflight is the state of a board before a test session, as facts rather than prose.
 type Preflight struct {
-	Board          string          `json:"board"`
-	Hostname       string          `json:"hostname"`
-	CLIVersion     string          `json:"cli_version"`
-	DiskFreeMB     int64           `json:"disk_free_mb"`
-	Dev            Dev             `json:"dev,omitempty"`
-	DevImages      []string        `json:"dev_images"`
-	RegistryImages []string        `json:"registry_images"`
-	Apps           []App           `json:"apps"`
-	AppFolders     []string        `json:"app_folders"`
-	Containers     []ContainerInfo `json:"containers"`
-	Images         []ImageInfo     `json:"images"`
-	Models         []string        `json:"models"`
-	Assets         []string        `json:"assets"`
-	VideoDevices   []string        `json:"video_devices"`
-	AudioCards     []string        `json:"audio_cards"`
+	Board        string          `json:"board"`
+	Hostname     string          `json:"hostname"`
+	CLIVersion   string          `json:"cli_version"`
+	DiskFreeMB   int64           `json:"disk_free_mb"`
+	Dev          Dev             `json:"dev,omitempty"`
+	DevImages    []string        `json:"dev_images"`
+	Apps         []App           `json:"apps"`
+	AppFolders   []string        `json:"app_folders"`
+	Containers   []ContainerInfo `json:"containers"`
+	Images       []ImageInfo     `json:"images"`
+	Models       []string        `json:"models"`
+	Assets       []string        `json:"assets"`
+	VideoDevices []string        `json:"video_devices"`
+	AudioCards   []string        `json:"audio_cards"`
 }
 
 // Preflight gathers the board state in one round trip.
@@ -60,7 +59,7 @@ func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
 		"hostname":   "hostname",
 		"cli":        "arduino-app-cli version",
 		"disk":       "df -k / | tail -1",
-		"apps":       b.appCLI(false, "app", "ps", "-a", "--format", "json"),
+		"apps":       appCLI(Dev{}, "app", "ps", "-a", "--format", "json"),
 		"appdirs":    shell.Join("ls", "-1", AppsDir),
 		"containers": "docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}|{{.Size}}'",
@@ -92,10 +91,6 @@ func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
 		AudioCards:   lines(s["audio"]),
 		DevImages:    []string{},
 	}
-	p.RegistryImages, err = b.registryImagesForTag(ctx)
-	if err != nil {
-		return nil, err
-	}
 	for _, l := range lines(s["containers"]) {
 		f := strings.SplitN(l, "|", 3)
 		if len(f) == 3 {
@@ -113,29 +108,6 @@ func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
 		}
 	}
 	return p, nil
-}
-
-// registryImagesForTag lists the board registry's entries carrying the session tag.
-func (b *Board) registryImagesForTag(ctx context.Context) ([]string, error) {
-	refs := []string{}
-	if !b.Dev.Enabled() {
-		return refs, nil
-	}
-	all, err := b.registryImages(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, ref := range all {
-		if strings.HasSuffix(ref, ":"+b.Dev.Tag) {
-			refs = append(refs, ref)
-		}
-	}
-	return refs, nil
-}
-
-// isDevImage matches only this session's registry and tag, never every dev image on a shared board.
-func (b *Board) isDevImage(ref string) bool {
-	return b.Dev.Enabled() && strings.HasPrefix(ref, b.Dev.registry()) && strings.HasSuffix(ref, ":"+b.Dev.Tag)
 }
 
 // parseApps reads the App CLI catalog; an unreadable catalog is an error, since cleanup decides what to destroy from it.
