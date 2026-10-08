@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/arduino/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/board"
 )
 
 // text renders a result compactly for a terminal; anything unknown falls back to JSON.

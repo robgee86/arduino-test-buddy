@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/arduino/arduino-test-buddy/internal/shell"
+	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
 // Paths owned by the App CLI on every supported board.

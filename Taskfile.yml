@@ -3,7 +3,7 @@ version: "3"
 vars:
   VERSION:
     sh: echo "${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)}"
-  LDFLAGS: -s -w -X github.com/arduino/arduino-test-buddy/internal/version.Version={{.VERSION}}
+  LDFLAGS: -s -w -X github.com/robgee86/arduino-test-buddy/internal/version.Version={{.VERSION}}
 
 tasks:
   default:

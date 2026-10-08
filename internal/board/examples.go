@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/arduino/arduino-test-buddy/internal/shell"
+	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
 // Example is a shipped example that declares a brick, with the facts that decide whether it can run.

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/arduino/arduino-test-buddy/internal/shell"
+	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
 // The registry on the board: bound to loopback, so only the board's daemon and an SSH tunnel reach it.

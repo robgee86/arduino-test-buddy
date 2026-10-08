@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/arduino/arduino-test-buddy/internal/cli"
+	"github.com/robgee86/arduino-test-buddy/internal/cli"
 )
 
 func main() {

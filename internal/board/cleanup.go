@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/arduino/arduino-test-buddy/internal/shell"
+	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
 // testPrefix marks every artifact a test session owns on a shared board.

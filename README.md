@@ -9,7 +9,7 @@ The tool exists because board testing by hand costs many SSH round trips, shell 
 Requires Go 1.26 and SSH access to the board through an alias in `~/.ssh/config`.
 
 ```console
-$ go install github.com/arduino/arduino-test-buddy/cmd/arduino-test-buddy@latest
+$ go install github.com/robgee86/arduino-test-buddy/cmd/arduino-test-buddy@latest
 ```
 
 Register it once as a user-scoped MCP server so every project can use it:
@@ -51,6 +51,10 @@ The MCP tools are `board_preflight`, `board_registry`, `board_push`, `board_exam
 - `run` waits for a marker regex in the log of this run only, cut at the last `App is starting` line, and reports each container with the revision label its image was built from. Test apps default to `BOARD-TEST SUMMARY`, shipped examples to the framework's `App started` line; pass `--marker` for a stronger line the example prints. Polling stops early when the app's container exits, so a crash returns its traceback at once. An example with a sketch is refused unless `--allow-flash` is given, because it flashes the MCU. A failed start returns the brick variables it asked for.
 - `run` blocks until the marker or the timeout. A first start that pulls a runner image can take minutes; raise the MCP tool timeout of your client for such runs.
 - `cleanup` removes only `bt-*` apps and their folders, the containers with their volumes and the networks of those apps and of the named brick's examples, the images of the session's registry and tag pulled on the board, the tag in the board registry (by tag, so a manifest shared with another tag keeps that one), and the assets folder of the tag, last. Registry blobs stay until a garbage collection, which is not part of this tool yet. Data written inside shipped example folders is reported, never deleted. The result ends with what the board still holds.
+
+## Releases
+
+Pushing a tag `vX.Y.Z` runs goreleaser in GitHub Actions, which builds the binaries for macOS, Linux and Windows, attaches the archives and checksums to a GitHub release and writes the changelog from the commits since the previous tag. `go install ...@latest` resolves to the newest tag as well.
 
 ## Development
 

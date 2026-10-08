@@ -6,7 +6,7 @@ package board
 import (
 	"strings"
 
-	"github.com/arduino/arduino-test-buddy/internal/shell"
+	"github.com/robgee86/arduino-test-buddy/internal/shell"
 )
 
 // sectionMarker separates the outputs of several commands run in one round trip.

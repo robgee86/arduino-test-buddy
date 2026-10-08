@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/arduino/arduino-test-buddy/internal/board"
-	"github.com/arduino/arduino-test-buddy/internal/mcpserver"
-	"github.com/arduino/arduino-test-buddy/internal/version"
+	"github.com/robgee86/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/mcpserver"
+	"github.com/robgee86/arduino-test-buddy/internal/version"
 )
 
 type options struct {

@@ -10,8 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/arduino/arduino-test-buddy/internal/board"
-	"github.com/arduino/arduino-test-buddy/internal/version"
+	"github.com/robgee86/arduino-test-buddy/internal/board"
+	"github.com/robgee86/arduino-test-buddy/internal/version"
 )
 
 // Defaults fill the target fields a tool call leaves empty.

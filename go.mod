@@ -1,4 +1,4 @@
-module github.com/arduino/arduino-test-buddy
+module github.com/robgee86/arduino-test-buddy
 
 go 1.26.7
 
