@@ -187,6 +187,14 @@ func TestExamplesFiltersByDeclaredBrickAndFlagsSketches(t *testing.T) {
 	if len(examples) != 1 || examples[0].App != "examples:bricks/arduino/motion_detection/01_basic_usage" || !examples[0].HasSketch {
 		t.Errorf("examples: %+v", examples)
 	}
+	f.answers[0].out.Stdout = strings.Replace(f.answers[0].out.Stdout, "@@brick\n"+ExamplesDir+"/bricks/arduino/motion_detection/01_basic_usage/app.yaml\n", "@@brick\n", 1)
+	byFolder, err := New("x", f, Dev{}).Examples(context.Background(), "motion_detection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byFolder) != 1 {
+		t.Errorf("the folder name must select the example too: %+v", byFolder)
+	}
 }
 
 func TestCleanupStepsAreScopedToTheSession(t *testing.T) {

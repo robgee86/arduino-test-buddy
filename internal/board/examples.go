@@ -19,7 +19,7 @@ type Example struct {
 	HasSketch bool   `json:"has_sketch"`
 }
 
-// Examples lists the shipped examples whose app.yaml declares the brick; an empty brick lists them all.
+// Examples lists the shipped examples of a brick, named by its id (video_object_detection) or its folder (video_objectdetection); an empty brick lists them all.
 func (b *Board) Examples(ctx context.Context, brick string) ([]Example, error) {
 	commands := map[string]string{
 		"list":   b.appCLI(false, "app", "list", "--examples", "--format", "json"),
@@ -57,7 +57,7 @@ func (b *Board) Examples(ctx context.Context, brick string) ([]Example, error) {
 			continue
 		}
 		dir := examplePath(app)
-		if brick != "" && !declaring[dir] {
+		if brick != "" && !declaring[dir] && !strings.Contains(app, "/"+brick+"/") {
 			continue
 		}
 		examples = append(examples, Example{ID: a.ID, App: app, Name: a.Name, HasSketch: sketches[dir]})
