@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/arduino/arduino-board-tool/internal/shell"
+	"github.com/arduino/arduino-test-buddy/internal/shell"
 )
 
 // The registry on the board: bound to loopback, so only the board's daemon and an SSH tunnel reach it.
 const (
-	RegistryName  = "arduino-board-tool-registry"
+	RegistryName  = "arduino-test-buddy-registry"
 	RegistryImage = "registry:3"
 	RegistryPort  = "5000"
 	registryURL   = "http://127.0.0.1:" + RegistryPort

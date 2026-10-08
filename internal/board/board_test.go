@@ -74,7 +74,7 @@ const twoRunsLog = `[main] Creating virtual environment at: .cache/.venv
 func TestAppCLIIsSerializedAndCarriesDevVariablesOnlyWhenAsked(t *testing.T) {
 	b := New("x", &fakeRunner{}, Dev{Registry: LoadedRegistry, Tag: "bt-llm"})
 	dev := b.appCLI(true, "app", "start", "bt-a")
-	want := "flock -w 900 /tmp/arduino-board-tool.lock env DOCKER_REGISTRY_BASE=dev.local/ DOCKER_PYTHON_BASE_IMAGE=app-bricks/python-apps-base:bt-llm arduino-app-cli app start bt-a"
+	want := "flock -w 900 /tmp/arduino-test-buddy.lock env DOCKER_REGISTRY_BASE=dev.local/ DOCKER_PYTHON_BASE_IMAGE=app-bricks/python-apps-base:bt-llm arduino-app-cli app start bt-a"
 	if dev != want {
 		t.Errorf("dev call:\n got %s\nwant %s", dev, want)
 	}
@@ -208,7 +208,7 @@ func TestCleanupStepsAreScopedToTheSession(t *testing.T) {
 	}
 	joined := strings.Join(commands, "\n")
 	for _, want := range []string{
-		"flock -w 900 /tmp/arduino-board-tool.lock arduino-app-cli app destroy /home/arduino/ArduinoApps/bt-probe",
+		"flock -w 900 /tmp/arduino-test-buddy.lock arduino-app-cli app destroy /home/arduino/ArduinoApps/bt-probe",
 		"rm -rf /home/arduino/ArduinoApps/bt-probe",
 		"docker rm -f -v bt-probe-main-1 var-lib-arduino-app-cli-examples-bricks-arduino-mqtt-01_basic-main-1",
 		"docker network rm bt-probe_default var-lib-arduino-app-cli-examples-bricks-arduino-mqtt-01_basic_default",

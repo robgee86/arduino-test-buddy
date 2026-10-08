@@ -1,4 +1,4 @@
-module github.com/arduino/arduino-board-tool
+module github.com/arduino/arduino-test-buddy
 
 go 1.26.7
 

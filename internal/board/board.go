@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/arduino/arduino-board-tool/internal/shell"
+	"github.com/arduino/arduino-test-buddy/internal/shell"
 )
 
 // Paths owned by the App CLI on every supported board.
@@ -20,7 +20,7 @@ const (
 	ModelsDir   = "/var/lib/arduino-app-cli/models"
 
 	// lockFile serializes every App CLI call across processes and hosts, the CLI corrupts the board when run twice.
-	lockFile    = "/tmp/arduino-board-tool.lock"
+	lockFile    = "/tmp/arduino-test-buddy.lock"
 	lockTimeout = "900"
 
 	// LoadedRegistry is the prefix for images loaded straight into the board's Docker: it never resolves, so a missing one fails instead of pulling a release.

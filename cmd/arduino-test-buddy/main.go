@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Arduino s.r.l. and/or its affiliated companies
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Command arduino-board-tool runs and cleans up App Bricks tests on a board, as a CLI or as an MCP server.
+// Command arduino-test-buddy runs and cleans up App Bricks tests on a board, as a CLI or as an MCP server.
 package main
 
 import (
@@ -11,7 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/arduino/arduino-board-tool/internal/cli"
+	"github.com/arduino/arduino-test-buddy/internal/cli"
 )
 
 func main() {

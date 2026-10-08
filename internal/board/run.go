@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arduino/arduino-board-tool/internal/shell"
+	"github.com/arduino/arduino-test-buddy/internal/shell"
 )
 
 // DefaultMarker is the line a self-verifying test app prints when its checks are done.

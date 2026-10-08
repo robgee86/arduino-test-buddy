@@ -3,7 +3,7 @@ version: "3"
 vars:
   VERSION:
     sh: echo "${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)}"
-  LDFLAGS: -s -w -X github.com/arduino/arduino-board-tool/internal/version.Version={{.VERSION}}
+  LDFLAGS: -s -w -X github.com/arduino/arduino-test-buddy/internal/version.Version={{.VERSION}}
 
 tasks:
   default:
@@ -12,12 +12,12 @@ tasks:
   build:
     desc: Build the binary for the host platform into dist/
     cmds:
-      - go build -ldflags "{{.LDFLAGS}}" -o dist/arduino-board-tool ./cmd/arduino-board-tool
+      - go build -ldflags "{{.LDFLAGS}}" -o dist/arduino-test-buddy ./cmd/arduino-test-buddy
 
   install:
     desc: Install the binary into GOPATH/bin
     cmds:
-      - go install -ldflags "{{.LDFLAGS}}" ./cmd/arduino-board-tool
+      - go install -ldflags "{{.LDFLAGS}}" ./cmd/arduino-test-buddy
 
   test:
     desc: Run the tests
@@ -53,4 +53,4 @@ tasks:
   mcp:add:
     desc: Register the installed binary as a user-scoped MCP server in Claude Code
     cmds:
-      - claude mcp add --scope user arduino-board -- arduino-board-tool mcp
+      - claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp

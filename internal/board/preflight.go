@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arduino/arduino-board-tool/internal/shell"
+	"github.com/arduino/arduino-test-buddy/internal/shell"
 )
 
 // App is one entry of the App CLI catalog.

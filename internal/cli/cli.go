@@ -15,9 +15,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/arduino/arduino-board-tool/internal/board"
-	"github.com/arduino/arduino-board-tool/internal/mcpserver"
-	"github.com/arduino/arduino-board-tool/internal/version"
+	"github.com/arduino/arduino-test-buddy/internal/board"
+	"github.com/arduino/arduino-test-buddy/internal/mcpserver"
+	"github.com/arduino/arduino-test-buddy/internal/version"
 )
 
 type options struct {
@@ -31,7 +31,7 @@ type options struct {
 func New() *cobra.Command {
 	opts := &options{}
 	root := &cobra.Command{
-		Use:           "arduino-board-tool",
+		Use:           "arduino-test-buddy",
 		Short:         "Run and clean up App Bricks tests on a board over SSH",
 		Version:       version.Version,
 		SilenceUsage:  true,

@@ -1,16 +1,16 @@
 version: 2
 
-project_name: arduino-board-tool
+project_name: arduino-test-buddy
 
 builds:
-  - main: ./cmd/arduino-board-tool
-    binary: arduino-board-tool
+  - main: ./cmd/arduino-test-buddy
+    binary: arduino-test-buddy
     env:
       - CGO_ENABLED=0
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     ldflags:
-      - -s -w -X github.com/arduino/arduino-board-tool/internal/version.Version={{.Version}}
+      - -s -w -X github.com/arduino/arduino-test-buddy/internal/version.Version={{.Version}}
 
 archives:
   - formats: [tar.gz]

@@ -6,7 +6,7 @@ package board
 import (
 	"context"
 
-	"github.com/arduino/arduino-board-tool/internal/shell"
+	"github.com/arduino/arduino-test-buddy/internal/shell"
 )
 
 // Exec runs a shell command inside a container of the board.

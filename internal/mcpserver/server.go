@@ -10,8 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/arduino/arduino-board-tool/internal/board"
-	"github.com/arduino/arduino-board-tool/internal/version"
+	"github.com/arduino/arduino-test-buddy/internal/board"
+	"github.com/arduino/arduino-test-buddy/internal/version"
 )
 
 // Defaults fill the target fields a tool call leaves empty.
@@ -100,8 +100,8 @@ type cleanupIn struct {
 // Serve registers the tools and blocks until the client disconnects.
 func Serve(ctx context.Context, defaults Defaults) error {
 	server := mcp.NewServer(&mcp.Implementation{
-		Name:    "arduino-board-tool",
-		Title:   "Arduino board test tool",
+		Name:    "arduino-test-buddy",
+		Title:   "Arduino Test Buddy",
 		Version: version.Version,
 	}, nil)
 	register(server, defaults)
