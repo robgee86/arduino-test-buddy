@@ -48,14 +48,20 @@ func (d Dev) Env() []string {
 	if !d.Enabled() {
 		return nil
 	}
-	registry := d.Registry
-	if registry == "" {
-		registry = host.RegistryPrefix
-	}
 	return []string{
-		"DOCKER_REGISTRY_BASE=" + registry,
+		"DOCKER_REGISTRY_BASE=" + d.registry(),
 		"DOCKER_PYTHON_BASE_IMAGE=app-bricks/python-apps-base:" + d.Tag,
 	}
+}
+
+// PythonImage is the image the App CLI runs the apps with for this session, registry included.
+func (d Dev) PythonImage() string { return d.registry() + "app-bricks/python-apps-base:" + d.Tag }
+
+func (d Dev) registry() string {
+	if d.Registry == "" {
+		return host.RegistryPrefix
+	}
+	return d.Registry
 }
 
 // DefaultWait is how long a session queues for its turn on a busy board.

@@ -27,7 +27,7 @@ Results are structured content, the same JSON `--format json` prints. Errors of 
 
 ## Timeouts
 
-`buddy_push` on a machine without a warm build cache, `board_run` on a first start that pulls a runner image, and either board tool queueing behind another session's turn take minutes. Raise the MCP tool timeout of the client for those calls; the tool itself has no limit besides the run's own `timeout_seconds`.
+`buddy_push` on a machine without a warm build cache, `board_run` on a first start that pulls a runner image or on the first start after a push (the App CLI recreates its app launcher only when the container's configuration changes, so `board_run` removes the launcher when the dev image behind the tag changed and that start is a cold one), and either board tool queueing behind another session's turn take minutes. Raise the MCP tool timeout of the client for those calls; the tool itself has no limit besides the run's own `timeout_seconds`.
 
 ## Images loaded by hand
 

@@ -147,6 +147,35 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	}
 }
 
+func TestRunReplacesTheLauncherWhenItsImageChanged(t *testing.T) {
+	f := (&fakeRunner{}).
+		on(`docker pull -q localhost:23456/app-bricks/python-apps-base:bt-x`, "replaced\n").
+		on(`app restart .*bt-x-probe`, restartedEvent).
+		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running"))
+	res, err := New("x", f, Dev{Tag: "bt-x"}).Run(context.Background(), RunRequest{App: "bt-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.LauncherReplaced {
+		t.Error("the launcher must be reported as replaced")
+	}
+	if !f.ran(`label=cc.arduino.app.launcher=true.*docker rm -f`) {
+		t.Error("the launcher container must be removed when its image is stale")
+	}
+	if idx := slices.IndexFunc(f.scripts, func(s string) bool { return strings.Contains(s, "docker pull") }); idx < 0 || !strings.Contains(f.scripts[idx+1], "app restart") {
+		t.Errorf("the launcher check must come right before the start: %v", f.scripts)
+	}
+
+	f = (&fakeRunner{}).on(`app restart`, restartedEvent).on(`app logs`, poll(twoRunsLog, "running"))
+	res, err = New("x", f, Dev{}).Run(context.Background(), RunRequest{App: "probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.LauncherReplaced || f.ran(`docker pull`) {
+		t.Error("the released stack keeps its launcher: its images change tag with every release")
+	}
+}
+
 type downHost struct{}
 
 func (downHost) Use(context.Context) (func(), error) { return nil, errors.New("down") }

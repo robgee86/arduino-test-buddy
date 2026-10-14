@@ -69,7 +69,11 @@ type RunResult struct {
 	Log              string      `json:"log"`
 	Containers       []Container `json:"containers"`
 	Stopped          bool        `json:"stopped"`
+	LauncherReplaced bool        `json:"launcher_replaced,omitempty"`
 }
+
+// launcherLabel marks the app launcher container, the warm interpreter the App CLI forks every app from.
+const launcherLabel = "cc.arduino.app.launcher"
 
 // Run waits for the session's turn on the board, starts the app, waits for the marker in the log of this run only, records the containers and stops the app.
 func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
@@ -130,6 +134,14 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 			res.Error = "example has a sketch and would flash the MCU; set allow_flash to run it"
 			return nil
 		}
+	}
+
+	if dev.Enabled() {
+		replaced, err := b.refreshLauncher(ctx, dev)
+		if err != nil {
+			return err
+		}
+		res.LauncherReplaced = replaced
 	}
 
 	// A session's own app may still run after a crash or a kept run, so it restarts; an example running for another session must not be taken over.
@@ -196,6 +208,24 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 		res.Stopped = stop.OK()
 	}
 	return nil
+}
+
+// refreshLauncher removes the app launcher container when the dev image behind its tag is no longer the one it
+// runs, as after a push: the App CLI recreates it on the next start, a cold one, where it would otherwise keep
+// forking apps from the old image. The image is pulled first, so the comparison sees what the start will use.
+// The launcher is shared by every session on the board: an app another session kept running stops with it.
+func (b *Board) refreshLauncher(ctx context.Context, dev Dev) (bool, error) {
+	image := shell.Quote(dev.PythonImage())
+	out, err := b.run(ctx, shell.Script(
+		"docker pull -q "+image+" >/dev/null 2>&1",
+		"want=$(docker image inspect --format '{{.Id}}' "+image+" 2>/dev/null)",
+		"launcher=$(docker ps -aq --filter label="+launcherLabel+"=true)",
+		"if [ -n \"$launcher\" ] && [ -n \"$want\" ] && [ \"$(docker inspect --format '{{.Image}}' $launcher)\" != \"$want\" ]; then docker rm -f $launcher >/dev/null && echo replaced; else echo kept; fi",
+	))
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out.Stdout) == "replaced", nil
 }
 
 // Logs returns the app log, by default only the part written since the last start.

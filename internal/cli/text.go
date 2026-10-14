@@ -90,6 +90,9 @@ func text(v any) string {
 		if r.WaitedS >= 1 {
 			fmt.Fprintf(&sb, "waited for the board: %.0fs\n", r.WaitedS)
 		}
+		if r.LauncherReplaced {
+			sb.WriteString("app launcher replaced for the new image: this start was a cold one\n")
+		}
 		if r.Error != "" {
 			fmt.Fprintf(&sb, "error: %s\n", r.Error)
 		}
