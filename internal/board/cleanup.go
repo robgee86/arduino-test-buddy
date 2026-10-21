@@ -164,8 +164,10 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 		"networks":   "docker network ls --format '{{.Name}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}'",
 		"assets":     shell.Join("ls", "-1", AssetsDir),
+		// The assets folders the installed release ships: never a session's, whatever its tag
+		"packaged": "dpkg -L arduino-app-cli 2>/dev/null | grep -o '^" + AssetsDir + "/[^/]*' | sort -u | xargs -rn1 basename",
 	}
-	order := []string{"apps", "containers", "networks", "images", "assets"}
+	order := []string{"apps", "containers", "networks", "images", "assets", "packaged"}
 	if brick != "" {
 		commands["leftovers"] = shell.Join("find", ExamplesDir+"/bricks/arduino/"+brick, "-mindepth", "2", "-maxdepth", "2", "(", "-name", "data", "-o", "-name", ".cache", ")")
 		order = append(order, "leftovers")
@@ -191,8 +193,10 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 			state.DevImages = append(state.DevImages, ref)
 		}
 	}
+	packaged := lines(s["packaged"])
 	for _, a := range lines(s["assets"]) {
-		if b.Dev.Enabled() && a == b.Dev.Tag {
+		// A tag equal to the release's runner version names the folder the package ships: removing it breaks the release
+		if b.Dev.Enabled() && a == b.Dev.Tag && !slices.Contains(packaged, a) {
 			state.Assets = append(state.Assets, a)
 		}
 	}
