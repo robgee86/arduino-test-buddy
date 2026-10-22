@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.2.0...v0.3.0) (2026-10-22)
+
+
+### Features
+
+* **preflight:** report kernel and security modules, keep the release's assets on cleanup ([#4](https://github.com/robgee86/arduino-test-buddy/issues/4)) ([fac4e7b](https://github.com/robgee86/arduino-test-buddy/commit/fac4e7b11f3e596b706d89bf5e22a8d8a39d321b))
+
+
+### Bug Fixes
+
+* **preflight:** stop collecting the security modules, keep only the kernel version ([#6](https://github.com/robgee86/arduino-test-buddy/issues/6)) ([49f3acf](https://github.com/robgee86/arduino-test-buddy/commit/49f3acf14723edda8811e14a0e1a5210121ee903))
+* **run:** read-only tunnel to the host registry, with the images a run used verified ([#7](https://github.com/robgee86/arduino-test-buddy/issues/7)) ([66893c8](https://github.com/robgee86/arduino-test-buddy/commit/66893c869b78cc5cff25562abc5120d05e8dc62b))
+
 ## [0.2.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.1.0...v0.2.0) (2026-10-22)
 
 
