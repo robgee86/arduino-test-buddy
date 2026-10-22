@@ -99,7 +99,7 @@ func (o *options) print(w io.Writer, v any) error {
 func preflightCmd(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "preflight",
-		Short: "Print the board state as facts: disk, CLI, apps, containers, images, models, devices",
+		Short: "Print the board state as facts: disk, CLI, kernel, security modules, apps, containers, images, models, devices",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			b, err := o.target()
