@@ -119,7 +119,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_preflight",
-		Description: "Board state as facts before a test session: disk, CLI version, kernel version, active security modules, apps, app folders, containers, images, dev images present for the tag, models, assets, video devices and audio cards.",
+		Description: "Board state as facts before a test session: disk, CLI version, kernel version, apps, app folders, containers, images, dev images present for the tag, models, assets, video devices and audio cards.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in preflightIn) (*mcp.CallToolResult, *board.Preflight, error) {
 		b, err := d.board(in.Target)

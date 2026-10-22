@@ -34,7 +34,7 @@ Gives back disk on the developer machine, after running pushes and board runs en
 
 ## preflight
 
-One round trip returning the board state as facts: hostname, CLI version, free disk, kernel version, active security modules, apps, app folders, containers, images, which images of the tag the board already pulled, models, assets folders, video devices and audio cards.
+One round trip returning the board state as facts: hostname, CLI version, free disk, kernel version, apps, app folders, containers, images, which images of the tag the board already pulled, models, assets folders, video devices and audio cards.
 
 ## examples
 

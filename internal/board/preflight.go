@@ -38,33 +38,31 @@ type ImageInfo struct {
 
 // Preflight is the state of a board before a test session, as facts rather than prose.
 type Preflight struct {
-	Board           string          `json:"board"`
-	Hostname        string          `json:"hostname"`
-	CLIVersion      string          `json:"cli_version"`
-	DiskFreeMB      int64           `json:"disk_free_mb"`
-	Kernel          string          `json:"kernel"`
-	SecurityModules []string        `json:"security_modules"`
-	Dev             Dev             `json:"dev,omitempty"`
-	DevImages       []string        `json:"dev_images"`
-	Apps            []App           `json:"apps"`
-	AppFolders      []string        `json:"app_folders"`
-	Containers      []ContainerInfo `json:"containers"`
-	Images          []ImageInfo     `json:"images"`
-	Models          []string        `json:"models"`
-	Assets          []string        `json:"assets"`
-	VideoDevices    []string        `json:"video_devices"`
-	AudioCards      []string        `json:"audio_cards"`
+	Board        string          `json:"board"`
+	Hostname     string          `json:"hostname"`
+	CLIVersion   string          `json:"cli_version"`
+	DiskFreeMB   int64           `json:"disk_free_mb"`
+	Kernel       string          `json:"kernel"`
+	Dev          Dev             `json:"dev,omitempty"`
+	DevImages    []string        `json:"dev_images"`
+	Apps         []App           `json:"apps"`
+	AppFolders   []string        `json:"app_folders"`
+	Containers   []ContainerInfo `json:"containers"`
+	Images       []ImageInfo     `json:"images"`
+	Models       []string        `json:"models"`
+	Assets       []string        `json:"assets"`
+	VideoDevices []string        `json:"video_devices"`
+	AudioCards   []string        `json:"audio_cards"`
 }
 
 // Preflight gathers the board state in one round trip.
 func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
-	order := []string{"hostname", "cli", "disk", "kernel", "lsm", "apps", "appdirs", "containers", "images", "models", "assets", "video", "audio"}
+	order := []string{"hostname", "cli", "disk", "kernel", "apps", "appdirs", "containers", "images", "models", "assets", "video", "audio"}
 	script := sectioned(map[string]string{
 		"hostname":   "hostname",
 		"cli":        "arduino-app-cli version",
 		"disk":       "df -k / | tail -1",
 		"kernel":     "uname -r",
-		"lsm":        "cat /sys/kernel/security/lsm",
 		"apps":       appCLI(Dev{}, "app", "list", "--format", "json"),
 		"appdirs":    shell.Join("ls", "-1", AppsDir),
 		"containers": "docker ps -a --format '{{.Names}}|{{.Image}}|{{.Status}}'",
@@ -84,20 +82,19 @@ func (b *Board) Preflight(ctx context.Context) (*Preflight, error) {
 		return nil, err
 	}
 	p := &Preflight{
-		Board:           b.Name,
-		Hostname:        strings.TrimSpace(s["hostname"]),
-		CLIVersion:      firstLine(s["cli"]),
-		DiskFreeMB:      diskFreeMB(s["disk"]),
-		Kernel:          firstLine(s["kernel"]),
-		SecurityModules: commaList(s["lsm"]),
-		Dev:             b.Dev,
-		Apps:            apps,
-		AppFolders:      lines(s["appdirs"]),
-		Models:          lines(s["models"]),
-		Assets:          lines(s["assets"]),
-		VideoDevices:    lines(s["video"]),
-		AudioCards:      lines(s["audio"]),
-		DevImages:       []string{},
+		Board:        b.Name,
+		Hostname:     strings.TrimSpace(s["hostname"]),
+		CLIVersion:   firstLine(s["cli"]),
+		DiskFreeMB:   diskFreeMB(s["disk"]),
+		Kernel:       firstLine(s["kernel"]),
+		Dev:          b.Dev,
+		Apps:         apps,
+		AppFolders:   lines(s["appdirs"]),
+		Models:       lines(s["models"]),
+		Assets:       lines(s["assets"]),
+		VideoDevices: lines(s["video"]),
+		AudioCards:   lines(s["audio"]),
+		DevImages:    []string{},
 	}
 	for _, l := range lines(s["containers"]) {
 		f := strings.SplitN(l, "|", 3)
@@ -142,16 +139,6 @@ func diskFreeMB(dfLine string) int64 {
 	}
 	kb, _ := strconv.ParseInt(fields[3], 10, 64)
 	return kb / 1024
-}
-
-func commaList(s string) []string {
-	var items []string
-	for _, item := range strings.Split(strings.TrimSpace(s), ",") {
-		if item != "" {
-			items = append(items, item)
-		}
-	}
-	return items
 }
 
 func firstLine(s string) string {
