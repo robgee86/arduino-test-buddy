@@ -6,6 +6,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -61,9 +62,9 @@ func (d Dev) Env() []string {
 // DefaultWait is how long a session queues for its turn on a busy board.
 const DefaultWait = 30 * time.Minute
 
-// HostRegistry is the registry a turn's tunnel leads to; Use holds it for the run so it can't be powered down mid-pull.
+// HostRegistry is the registry a turn's tunnel leads to. Use holds it up for the run, so it can't be powered down mid-pull, and serves it read-only on a loopback port of the developer machine, the only end of the registry a board ever reaches.
 type HostRegistry interface {
-	Use(ctx context.Context) (release func(), err error)
+	Use(ctx context.Context) (port string, release func(), err error)
 }
 
 // Board is one reachable board plus the images a session runs on.
@@ -85,14 +86,15 @@ func New(name string, runner Runner, dev Dev) *Board {
 func (b *Board) withTurn(ctx context.Context, forward bool, fn func(dev Dev) error) (float64, error) {
 	hostPort := ""
 	if forward && b.Dev.tunneled() {
-		hostPort = host.RegistryPort
-		if b.Host != nil {
-			release, err := b.Host.Use(ctx)
-			if err != nil {
-				return 0, err
-			}
-			defer release()
+		if b.Host == nil {
+			return 0, errors.New("no host registry to pull the images from")
 		}
+		port, release, err := b.Host.Use(ctx)
+		if err != nil {
+			return 0, err
+		}
+		defer release()
+		hostPort = port
 	}
 	lease, err := b.runner.Lease(ctx, hostPort, b.Wait)
 	if err != nil {

@@ -26,8 +26,23 @@ type answer struct {
 	out   Output
 }
 
-// fakePort is the board-side tunnel port every fake turn gets.
-const fakePort = 23456
+// fakePort is the board-side tunnel port every fake turn gets, fakeHostPort the read-only registry port it leads to.
+const (
+	fakePort     = 23456
+	fakeHostPort = "54321"
+)
+
+// fakeHost is the host registry, up and served read-only on fakeHostPort.
+type fakeHost struct{}
+
+func (fakeHost) Use(context.Context) (string, func(), error) { return fakeHostPort, func() {}, nil }
+
+// tunneled wires a board to a fake runner and the fake host registry, as a tagged session without --registry runs.
+func tunneled(f *fakeRunner, tag string) *Board {
+	b := New("x", f, Dev{Tag: tag})
+	b.Host = fakeHost{}
+	return b
+}
 
 func (f *fakeRunner) on(pattern string, stdout string) *fakeRunner {
 	f.answers = append(f.answers, answer{regexp.MustCompile(pattern), Output{Stdout: stdout}})
@@ -127,7 +142,7 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 		on(`app restart .*bt-x-probe`, restartedEvent).
 		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running")).
 		on(`docker ps`, "bt-x-probe-main-1|localhost:23456/app-bricks/python-apps-base:bt-x|abc123\n")
-	res, err := New("x", f, Dev{Tag: "bt-x"}).Run(context.Background(), RunRequest{App: "bt-probe"})
+	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,8 +155,8 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	if len(res.Containers) != 1 || res.Containers[0].Revision != "abc123" {
 		t.Errorf("containers: %+v", res.Containers)
 	}
-	if len(f.leases) != 1 || f.leases[0] == "" {
-		t.Errorf("run must take one turn with a tunnel to the host registry: %v", f.leases)
+	if len(f.leases) != 1 || f.leases[0] != fakeHostPort {
+		t.Errorf("run must take one turn with a tunnel to the read-only end of the host registry: %v", f.leases)
 	}
 	if !f.ran(`DOCKER_REGISTRY_BASE=localhost:23456/ .* app stop /home/arduino/ArduinoApps/bt-x-probe`) {
 		t.Error("the app must start and stop through the turn's tunnel port")
@@ -150,7 +165,7 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 
 type downHost struct{}
 
-func (downHost) Use(context.Context) (func(), error) { return nil, errors.New("down") }
+func (downHost) Use(context.Context) (string, func(), error) { return "", nil, errors.New("down") }
 
 func TestRunFailsBeforeItsTurnWhenTheHostRegistryIsDown(t *testing.T) {
 	f := &fakeRunner{}
@@ -158,6 +173,13 @@ func TestRunFailsBeforeItsTurnWhenTheHostRegistryIsDown(t *testing.T) {
 	b.Host = downHost{}
 	if _, err := b.Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 || f.ran(`app (re)?start`) {
 		t.Errorf("a run must fail without taking a turn: %v %v", err, f.leases)
+	}
+}
+
+func TestRunNeedsTheHostRegistryToTunnel(t *testing.T) {
+	f := &fakeRunner{}
+	if _, err := New("x", f, Dev{Tag: "bt-x"}).Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 {
+		t.Errorf("without a host registry a tunneled run must fail before its turn, never forward to the writable registry: %v %v", err, f.leases)
 	}
 }
 
@@ -229,7 +251,7 @@ func TestRunPushesAHostFolderUnderTheSessionName(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := (&fakeRunner{}).on(`app restart .*bt-x-local`, restartedEvent).on(`app logs`, poll(twoRunsLog, "running"))
-	res, err := New("x", f, Dev{Tag: "x"}).Run(context.Background(), RunRequest{App: "host:" + dir})
+	res, err := tunneled(f, "x").Run(context.Background(), RunRequest{App: "host:" + dir})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -143,17 +143,22 @@ func (h *Host) Status(ctx context.Context) (*Status, error) {
 	return st, nil
 }
 
-// Use holds the registry for a board run, so a down waits for it, and fails at once when the tool is down.
-func (h *Host) Use(ctx context.Context) (func(), error) {
+// Use holds the registry for a board run, so a down waits for it, and serves it read-only on a fresh loopback port, the end of the tunnel the board pulls through; it fails at once when the tool is down.
+func (h *Host) Use(ctx context.Context) (port string, release func(), err error) {
 	shared, err := h.lock(false, true)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if registry, _ := h.state(ctx); registry != Running {
 		shared.release()
-		return nil, ErrDown
+		return "", nil, ErrDown
 	}
-	return shared.release, nil
+	ro, err := h.serveReadOnly()
+	if err != nil {
+		shared.release()
+		return "", nil, err
+	}
+	return ro.Port(), func() { ro.Close(); shared.release() }, nil
 }
 
 // tagLink is the file the registry rewrites on every push of a tag: <repo>/_manifests/tags/<tag>/current/link.

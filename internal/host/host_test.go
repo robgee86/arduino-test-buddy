@@ -199,7 +199,7 @@ func TestNothingStartsByItselfWhileDown(t *testing.T) {
 	if _, err := h.Prune(context.Background(), PruneRequest{Tag: "x"}); err != ErrDown {
 		t.Errorf("prune of a tag while down: %v", err)
 	}
-	if _, err := h.Use(context.Background()); err != ErrDown {
+	if _, _, err := h.Use(context.Background()); err != ErrDown {
 		t.Errorf("a board run while down: %v", err)
 	}
 	st, err := h.Status(context.Background())
@@ -292,7 +292,7 @@ func TestStatusListsTagsOldestFirstFromTheFolderEvenWhileDown(t *testing.T) {
 
 func TestDownWaitsForRunsHoldingTheRegistry(t *testing.T) {
 	h, _, _ := newHost(t, map[string][]string{})
-	release, err := h.Use(context.Background())
+	_, release, err := h.Use(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,5 +376,37 @@ func TestPruneWaitsForRunningPushesAndAPushSkipsPruningDuringOne(t *testing.T) {
 	shared.release()
 	if _, err := h.lock(true, false); err != nil {
 		t.Errorf("the lock must be free once the push released it: %v", err)
+	}
+}
+
+func TestBoardsReachTheRegistryReadOnly(t *testing.T) {
+	h, _, reg := newHost(t, map[string][]string{"app-bricks/tps": {"bt-x"}})
+	port, release, err := h.Use(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "http://127.0.0.1:" + port
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		req, _ := http.NewRequest(method, base+"/v2/app-bricks/tps/tags/list", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s through the tunnel end: %v %v", method, resp, err)
+		}
+		resp.Body.Close()
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		req, _ := http.NewRequest(method, base+"/v2/app-bricks/tps/manifests/bt-x", strings.NewReader("{}"))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil || resp.StatusCode != http.StatusMethodNotAllowed || resp.Header.Get("Allow") != "GET, HEAD" {
+			t.Fatalf("%s through the tunnel end must be refused: %v %v", method, resp, err)
+		}
+		resp.Body.Close()
+	}
+	if len(reg.deleted) != 0 {
+		t.Errorf("a refused delete must never reach the registry: %v", reg.deleted)
+	}
+	release()
+	if _, err := http.Get(base + "/v2/"); err == nil {
+		t.Error("the tunnel end must close with the turn")
 	}
 }
