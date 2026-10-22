@@ -126,6 +126,7 @@ func appCLI(dev Dev, args ...string) string {
 
 // SessionApp is the board name of a local test app, bt-<tag>-<name> or bt-released-<name> without a tag, so sessions sharing a board never collide on or remove each other's apps.
 func (b *Board) SessionApp(name string) string {
+	name = strings.TrimPrefix(name, userPrefix)
 	if IsExample(name) || strings.HasPrefix(name, b.sessionPrefix()) {
 		return name
 	}
@@ -156,6 +157,13 @@ func (b *Board) isDevImage(ref string) bool {
 }
 
 var tunnelImageRE = regexp.MustCompile(`^localhost:[0-9]+/app-bricks/`)
+
+const (
+	// hostPrefix names an app folder on the developer machine, copied to the board before the run.
+	hostPrefix = "host:"
+	// userPrefix names an app on the board, as the App CLI does.
+	userPrefix = "user:"
+)
 
 // IsExample reports whether app names a shipped example rather than a user app.
 func IsExample(app string) bool { return strings.HasPrefix(app, "examples:") }

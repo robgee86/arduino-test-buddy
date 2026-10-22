@@ -100,6 +100,7 @@ func TestSessionAppNamesAreScopedToTheTag(t *testing.T) {
 		"bt-mytest":                 "bt-feature-x-mytest",
 		"mytest":                    "bt-feature-x-mytest",
 		"bt-feature-x-mytest":       "bt-feature-x-mytest",
+		"user:mytest":               "bt-feature-x-mytest",
 		"examples:bricks/arduino/a": "examples:bricks/arduino/a",
 	} {
 		if got := b.SessionApp(in); got != want {
@@ -222,13 +223,13 @@ func TestExamplesDefaultToTheStartupMarker(t *testing.T) {
 	}
 }
 
-func TestRunPushesLocalDirUnderTheSessionName(t *testing.T) {
+func TestRunPushesAHostFolderUnderTheSessionName(t *testing.T) {
 	dir := t.TempDir() + "/bt-local"
 	if err := mkAppDir(dir); err != nil {
 		t.Fatal(err)
 	}
 	f := (&fakeRunner{}).on(`app restart .*bt-x-local`, restartedEvent).on(`app logs`, poll(twoRunsLog, "running"))
-	res, err := New("x", f, Dev{Tag: "x"}).Run(context.Background(), RunRequest{LocalDir: dir})
+	res, err := New("x", f, Dev{Tag: "x"}).Run(context.Background(), RunRequest{App: "host:" + dir})
 	if err != nil {
 		t.Fatal(err)
 	}

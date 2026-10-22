@@ -166,7 +166,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_run",
-		Description: "Wait for this session's turn on the board, copy an app folder if given, start the app or example with the session's dev images pulled from the host registry through a tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image and build revision, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
+		Description: "Wait for this session's turn on the board, copy the app folder first for host:<folder>, start the app or example with the session's dev images pulled from the host registry through a tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image and build revision, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, *board.RunResult, error) {
 		b, err := d.board(in.Target)
 		if err != nil {

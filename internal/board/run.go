@@ -37,8 +37,7 @@ var (
 
 // RunRequest describes one bounded run of an app or example.
 type RunRequest struct {
-	App         string        `json:"app" jsonschema:"app name, stored on the board as bt-<tag>-<name>, or examples:<path> for a shipped example"`
-	LocalDir    string        `json:"local_dir,omitempty" jsonschema:"local app folder to copy to the board first; its base name becomes the app name"`
+	App         string        `json:"app" jsonschema:"examples:<path> for a shipped example, user:<name> or <name> for an app on the board stored as bt-<tag>-<name>, host:<folder> for an app folder on this machine, copied to the board first under its folder name"`
 	Marker      string        `json:"marker,omitempty" jsonschema:"regex that ends the run when it appears in the log of this run; default BOARD-TEST SUMMARY"`
 	Timeout     time.Duration `json:"-"`
 	TimeoutS    int           `json:"timeout_seconds,omitempty" jsonschema:"seconds to wait for the marker after start; default 120"`
@@ -73,16 +72,16 @@ type RunResult struct {
 
 // Run waits for the session's turn on the board, starts the app, waits for the marker in the log of this run only, records the containers and stops the app.
 func (b *Board) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
-	if req.LocalDir != "" {
-		if _, err := os.Stat(filepath.Join(req.LocalDir, "app.yaml")); err != nil {
-			return nil, fmt.Errorf("%s is not an app folder: no app.yaml", req.LocalDir)
+	if dir, ok := strings.CutPrefix(req.App, hostPrefix); ok {
+		dir, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, err
 		}
-		name := b.SessionApp(filepath.Base(filepath.Clean(req.LocalDir)))
-		if req.App != "" && b.SessionApp(req.App) != name {
-			return nil, fmt.Errorf("app %q does not match the folder name %q", req.App, name)
+		if _, err := os.Stat(filepath.Join(dir, "app.yaml")); err != nil {
+			return nil, fmt.Errorf("%s is not an app folder: no app.yaml", dir)
 		}
-		req.App = name
-		if err := b.runner.Push(ctx, req.LocalDir, AppsDir+"/"+name); err != nil {
+		req.App = b.SessionApp(filepath.Base(dir))
+		if err := b.runner.Push(ctx, dir, AppsDir+"/"+req.App); err != nil {
 			return nil, err
 		}
 	}
