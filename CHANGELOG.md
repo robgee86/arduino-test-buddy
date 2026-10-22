@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.1.0...v0.2.0) (2026-10-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **run:** name the app with examples:, user: or host: prefixes and drop --dir/local_dir ([#2](https://github.com/robgee86/arduino-test-buddy/issues/2))
+
+### Features
+
+* **run:** name the app with examples:, user: or host: prefixes and drop --dir/local_dir ([#2](https://github.com/robgee86/arduino-test-buddy/issues/2)) ([b33aeee](https://github.com/robgee86/arduino-test-buddy/commit/b33aeeed989161b789bd6d55ac04db5daef99e89))
+
 ## 0.1.0 (2026-10-09)
 
 
