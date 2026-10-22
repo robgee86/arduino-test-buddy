@@ -319,7 +319,7 @@ func TestCleanupTakesATurnAndTouchesOnlyTheSession(t *testing.T) {
 
 func TestPreflightParsesSections(t *testing.T) {
 	out := "@@hostname\nventunoq\n@@cli\nArduino App CLI version 0.14.0\ndaemon version: 0.14.0\n@@disk\n/dev/x 100 50 20480 60% /\n" +
-		"@@kernel\n7.2.11-arduino1+\n@@lsm\ncapability,landlock\n@@apps\n" + `{"apps":[{"id":"dXNlcjp0ZXN0X2NhbQ","name":"Test camera","status":"stopped"}]}` + "\n@@appdirs\ntest_cam\n" +
+		"@@kernel\n7.2.11-arduino1+\n@@apps\n" + `{"apps":[{"id":"dXNlcjp0ZXN0X2NhbQ","name":"Test camera","status":"stopped"}]}` + "\n@@appdirs\ntest_cam\n" +
 		"@@containers\nc1|img|Up\n@@images\nlocalhost:24000/app-bricks/python-apps-base:bt-x|1GB\nghcr.io/arduino/app-bricks/python-apps-base:0.13.1|1GB\n" +
 		"@@models\nm1\n@@assets\n0.13.1\n@@video\n/dev/video0\n@@audio\n 0 [UAC2 ]: USB-Audio\n"
 	f := (&fakeRunner{}).on(`@@hostname`, out)
@@ -330,8 +330,8 @@ func TestPreflightParsesSections(t *testing.T) {
 	if p.Hostname != "ventunoq" || p.CLIVersion != "Arduino App CLI version 0.14.0" || p.DiskFreeMB != 20 {
 		t.Errorf("header: %+v", p)
 	}
-	if p.Kernel != "7.2.11-arduino1+" || !slices.Equal(p.SecurityModules, []string{"capability", "landlock"}) {
-		t.Errorf("kernel facts: %q %v", p.Kernel, p.SecurityModules)
+	if p.Kernel != "7.2.11-arduino1+" {
+		t.Errorf("kernel: %q", p.Kernel)
 	}
 	if len(p.Apps) != 1 || p.Apps[0].Folder != "test_cam" {
 		t.Errorf("an app is named by its folder, not its display name: %+v", p.Apps)
