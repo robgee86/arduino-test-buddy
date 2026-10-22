@@ -32,15 +32,20 @@ const (
 	fakeHostPort = "54321"
 )
 
-// fakeHost is the host registry, up and served read-only on fakeHostPort.
-type fakeHost struct{}
+// pushedDigest is what the fake host registry serves for the session's Python base image.
+const pushedDigest = "sha256:pushed"
+
+// fakeHost is the host registry, up and served read-only on fakeHostPort, holding digests by repository:tag.
+type fakeHost struct{ digests map[string]string }
 
 func (fakeHost) Use(context.Context) (string, func(), error) { return fakeHostPort, func() {}, nil }
+
+func (h fakeHost) Digest(_ context.Context, ref string) (string, error) { return h.digests[ref], nil }
 
 // tunneled wires a board to a fake runner and the fake host registry, as a tagged session without --registry runs.
 func tunneled(f *fakeRunner, tag string) *Board {
 	b := New("x", f, Dev{Tag: tag})
-	b.Host = fakeHost{}
+	b.Host = fakeHost{digests: map[string]string{"app-bricks/python-apps-base:" + tag: pushedDigest}}
 	return b
 }
 
@@ -141,7 +146,8 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	f := (&fakeRunner{}).
 		on(`app restart .*bt-x-probe`, restartedEvent).
 		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running")).
-		on(`docker ps`, "bt-x-probe-main-1|localhost:23456/app-bricks/python-apps-base:bt-x|abc123\n")
+		on(`docker ps`, "bt-x-probe-main-1|localhost:23456/app-bricks/python-apps-base:bt-x|abc123\n").
+		on(`docker image inspect`, "@@localhost:23456/app-bricks/python-apps-base:bt-x\nlocalhost:23456/app-bricks/python-apps-base@"+pushedDigest+"\n")
 	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +158,8 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	if strings.Contains(res.Log, "old") {
 		t.Error("log must hold the last run only")
 	}
-	if len(res.Containers) != 1 || res.Containers[0].Revision != "abc123" {
-		t.Errorf("containers: %+v", res.Containers)
+	if len(res.Containers) != 1 || res.Containers[0].Revision != "abc123" || res.Containers[0].Digest != pushedDigest || len(res.DifferingImages) != 0 {
+		t.Errorf("containers must carry the digest the host registry serves, with nothing differing: %+v %v", res.Containers, res.DifferingImages)
 	}
 	if len(f.leases) != 1 || f.leases[0] != fakeHostPort {
 		t.Errorf("run must take one turn with a tunnel to the read-only end of the host registry: %v", f.leases)
@@ -167,12 +173,33 @@ type downHost struct{}
 
 func (downHost) Use(context.Context) (string, func(), error) { return "", nil, errors.New("down") }
 
+func (downHost) Digest(context.Context, string) (string, error) { return "", errors.New("down") }
+
 func TestRunFailsBeforeItsTurnWhenTheHostRegistryIsDown(t *testing.T) {
 	f := &fakeRunner{}
 	b := New("x", f, Dev{Tag: "bt-x"})
 	b.Host = downHost{}
 	if _, err := b.Run(context.Background(), RunRequest{App: "bt-probe"}); err == nil || len(f.leases) != 0 || f.ran(`app (re)?start`) {
 		t.Errorf("a run must fail without taking a turn: %v %v", err, f.leases)
+	}
+}
+
+func TestRunReportsTheImagesDifferingFromTheHostRegistry(t *testing.T) {
+	python := "localhost:23456/app-bricks/python-apps-base:bt-x"
+	f := (&fakeRunner{}).
+		on(`app restart .*bt-x-probe`, restartedEvent).
+		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running")).
+		on(`docker ps`, "bt-x-probe-main-1|"+python+"|abc123\nbt-x-probe-broker-1|eclipse-mosquitto:2|\n").
+		on(`docker image inspect`, "@@"+python+"\nlocalhost:20001/app-bricks/python-apps-base@sha256:stale\n")
+	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.DifferingImages, []string{python}) || res.Containers[0].Digest != "sha256:stale" || res.Containers[1].Digest != "" {
+		t.Errorf("the dev image pulled under an older port and digest must be reported, the released one left alone: %v %+v", res.DifferingImages, res.Containers)
+	}
+	if f.ran(`docker image inspect .*mosquitto`) {
+		t.Error("only dev images are compared with the host registry")
 	}
 }
 

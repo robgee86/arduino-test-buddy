@@ -65,6 +65,8 @@ const DefaultWait = 30 * time.Minute
 // HostRegistry is the registry a turn's tunnel leads to. Use holds it up for the run, so it can't be powered down mid-pull, and serves it read-only on a loopback port of the developer machine, the only end of the registry a board ever reaches.
 type HostRegistry interface {
 	Use(ctx context.Context) (port string, release func(), err error)
+	// Digest is the manifest digest the registry serves for repository:tag, what a board pulling it records; empty when it holds none.
+	Digest(ctx context.Context, ref string) (string, error)
 }
 
 // Board is one reachable board plus the images a session runs on.

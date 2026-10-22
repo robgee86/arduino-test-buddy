@@ -53,6 +53,31 @@ func (h *Host) Images(ctx context.Context, tag string) ([]string, error) {
 	return refs, nil
 }
 
+// manifestTypes is what a pull accepts, so the digest the registry answers with is the one a board records for the tag.
+const manifestTypes = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
+
+// Digest is the digest of the manifest the registry serves for repository:tag, empty when it holds none.
+func (h *Host) Digest(ctx context.Context, ref string) (string, error) {
+	repo, tag, _ := strings.Cut(ref, ":")
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, h.url+"/v2/"+repo+"/manifests/"+tag, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", manifestTypes)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return resp.Header.Get("Docker-Content-Digest"), nil
+	case http.StatusNotFound:
+		return "", nil
+	}
+	return "", fmt.Errorf("manifest %s: HTTP %d", ref, resp.StatusCode)
+}
+
 // deleteTag removes one repository:tag; the registry deletes by tag, so a manifest shared with another tag keeps that one.
 func (h *Host) deleteTag(ctx context.Context, ref string) error {
 	repo, tag, _ := strings.Cut(ref, ":")

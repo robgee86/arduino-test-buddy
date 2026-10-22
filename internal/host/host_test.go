@@ -86,6 +86,14 @@ func (r *fakeRegistry) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			quoted = append(quoted, `"`+t+`"`)
 		}
 		w.Write([]byte(`{"tags":[` + strings.Join(quoted, ",") + `]}`))
+	case strings.Contains(path, "/manifests/") && (req.Method == http.MethodHead || req.Method == http.MethodGet):
+		repo, tag, _ := strings.Cut(path, "/manifests/")
+		if !slices.Contains(r.tags[repo], tag) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Docker-Content-Digest", "sha256:"+tag)
+		w.WriteHeader(http.StatusOK)
 	case req.Method == http.MethodDelete:
 		repo, tag, _ := strings.Cut(path, "/manifests/")
 		r.deleted = append(r.deleted, repo+":"+tag)
@@ -408,5 +416,15 @@ func TestBoardsReachTheRegistryReadOnly(t *testing.T) {
 	release()
 	if _, err := http.Get(base + "/v2/"); err == nil {
 		t.Error("the tunnel end must close with the turn")
+	}
+}
+
+func TestDigestIsTheManifestTheRegistryServesForTheTag(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{"app-bricks/tps": {"bt-x"}})
+	if d, err := h.Digest(context.Background(), "app-bricks/tps:bt-x"); err != nil || d != "sha256:bt-x" {
+		t.Errorf("digest of a pushed tag: %q %v", d, err)
+	}
+	if d, err := h.Digest(context.Background(), "app-bricks/tps:gone"); err != nil || d != "" {
+		t.Errorf("a tag the registry does not hold has no digest: %q %v", d, err)
 	}
 }

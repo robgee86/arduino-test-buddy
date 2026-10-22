@@ -45,11 +45,12 @@ type RunRequest struct {
 	AllowFlash  bool          `json:"allow_flash,omitempty" jsonschema:"allow an example with a sketch, which flashes the MCU"`
 }
 
-// Container is one container of the app after the run, with the revision its image was built from.
+// Container is one container of the app after the run, with the revision its image was built from and, for a dev image pulled through the tunnel, the digest the board holds for it.
 type Container struct {
 	Name     string `json:"name"`
 	Image    string `json:"image"`
 	Revision string `json:"revision,omitempty"`
+	Digest   string `json:"digest,omitempty"`
 }
 
 // RunResult is the evidence of one run: what started, what the log of this run says and what ran it.
@@ -67,7 +68,9 @@ type RunResult struct {
 	ElapsedS         float64     `json:"elapsed_seconds"`
 	Log              string      `json:"log"`
 	Containers       []Container `json:"containers"`
-	Stopped          bool        `json:"stopped"`
+	// DifferingImages are the dev images whose digest on the board is not the one the host registry serves for the tag: swapped under the tag, or not pulled again.
+	DifferingImages []string `json:"differing_images,omitempty"`
+	Stopped         bool     `json:"stopped"`
 }
 
 // Run waits for the session's turn on the board, starts the app, waits for the marker in the log of this run only, records the containers and stops the app.
@@ -187,6 +190,11 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 	if res.Containers, err = b.containers(ctx, req.App); err != nil {
 		return err
 	}
+	if b.Dev.tunneled() {
+		if res.DifferingImages, err = b.verifyImages(ctx, res.Containers); err != nil {
+			return err
+		}
+	}
 	if !req.KeepRunning {
 		stop, err := b.run(ctx, appCLI(dev, "app", "stop", appRef(req.App)))
 		if err != nil {
@@ -195,6 +203,62 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 		res.Stopped = stop.OK()
 	}
 	return nil
+}
+
+// verifyImages compares each dev image the app runs with the host registry: the digests the board holds for it must include the one the registry serves for the tag. It records that digest on the containers and returns the images that differ, swapped under the tag or not pulled again.
+func (b *Board) verifyImages(ctx context.Context, containers []Container) ([]string, error) {
+	var refs []string
+	for _, c := range containers {
+		if b.isDevImage(c.Image) && !slices.Contains(refs, c.Image) {
+			refs = append(refs, c.Image)
+		}
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	commands := map[string]string{}
+	for _, ref := range refs {
+		commands[ref] = shell.Join("docker", "image", "inspect", "--format", `{{join .RepoDigests " "}}`, ref)
+	}
+	out, err := b.run(ctx, sectioned(commands, refs))
+	if err != nil {
+		return nil, err
+	}
+	held := parseSections(out.Stdout)
+	var differing []string
+	for _, ref := range refs {
+		_, repoTag, _ := strings.Cut(ref, "/")
+		want, err := b.Host.Digest(ctx, repoTag)
+		if err != nil {
+			return nil, err
+		}
+		digest := heldDigest(held[ref], want)
+		if digest != want || want == "" {
+			differing = append(differing, ref)
+		}
+		for i := range containers {
+			if containers[i].Image == ref {
+				containers[i].Digest = digest
+			}
+		}
+	}
+	return differing, nil
+}
+
+// heldDigest picks, among the repo@digest references docker prints for an image, the wanted digest when the board holds it, else the first one.
+func heldDigest(repoDigests, want string) string {
+	digest := ""
+	for _, field := range strings.Fields(repoDigests) {
+		if _, d, ok := strings.Cut(field, "@"); ok {
+			if d == want {
+				return d
+			}
+			if digest == "" {
+				digest = d
+			}
+		}
+	}
+	return digest
 }
 
 // Logs returns the app log, by default only the part written since the last start.
