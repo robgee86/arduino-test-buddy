@@ -6,7 +6,7 @@ The operations split by where they run. `up`, `down`, `status`, `push` and `prun
 
 - **Sessions take turns.** `run` and `cleanup` hold the board for their whole duration, queueing for up to `--wait` (default 30 minutes) while another session holds it, and report how long they waited. The turn is an `flock` on the board held by an ssh session whose input the tool owns, so it ends when the tool exits for any reason, `kill -9` included. When that input closes, the board side also ends its own SSH session, which drops any connection the board's Docker still keeps open through the tunnel; on a VENTUNO Q nothing of a killed session remained 3 seconds later.
 - **One App CLI at a time.** Every `arduino-app-cli` call runs under `flock -w 900 /tmp/arduino-test-buddy.lock`, since the CLI corrupts the board when run twice. A CLI typed in a shell on the board, or through `shell`, bypasses the lock.
-- **Session names.** A local test app is stored on the board as `bt-<tag>-<name>`, or `bt-released-<name>` without a tag, so sessions never collide on or remove each other's apps. Apps named `bt-*` by hand before the tool need `cleanup --app <name>`.
+- **Session names.** A local test app is stored on the board as `bt-<tag>-<name>`, or `bt-released-<name>` without a tag, so sessions with different tags never collide on or remove each other's apps. The tag is the whole session key: two people testing a branch of the same name on one board share its apps and images, and either one's `run` restarts them and `cleanup` removes them. Apps named `bt-*` by hand before the tool need `cleanup --app <name>`.
 - **What a turn does not cover.** `run --keep` leaves the app running after the turn ends, so the next session may start apps beside it. A session killed while it queues leaves its `ssh` waiting until the board frees up or the wait expires; it then takes the board for an instant and exits.
 - **Dev variables only where they belong.** Calls that run apps carry `DOCKER_REGISTRY_BASE` and `DOCKER_PYTHON_BASE_IMAGE`; cleanup calls never do, since any call carrying them recreates the assets folder of the tag.
 
@@ -42,10 +42,10 @@ Lists the shipped examples of a brick, named by the brick id (`video_object_dete
 
 ## run
 
-Takes `examples:<path>` for a shipped example, `user:<name>` or a bare name for an app on the board, stored as `bt-<tag>-<name>` so sessions never collide, or `host:<folder>` for an app folder on this machine, copied to the board first under its folder name. It holds the host registry so a `down` waits for the run, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
+Takes `examples:<path>` for a shipped example, `user:<name>` or a bare name for an app on the board, stored as `bt-<tag>-<name>` so sessions with different tags never collide, or `host:<folder>` for an app folder on this machine, copied to the board first under its folder name. It holds the host registry so a `down` waits for the run, waits for the session's turn, opens a tunnel from the board's loopback to a read-only view of the host registry on a fresh port, so the board can pull but nothing on it can push or delete, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
 
 - The log of this run only, cut at the last `App is starting` line, so an old traceback never shadows a healthy restart.
-- Each container with its image and the revision label the image was built from.
+- Each container with its image, the revision label the image was built from and, for the dev images, the digest the board holds. The dev images whose digest is not the one the host registry serves for the tag are listed apart: a swapped image, or one the App CLI did not pull again.
 - Whether the marker appeared, the run timed out, or the app exited first; a crash returns its traceback at once instead of after the timeout.
 - On a failed start, the start output and the brick variables it asked for.
 - How long the session waited for the board.

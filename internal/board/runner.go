@@ -111,7 +111,7 @@ func (s SSH) Lease(ctx context.Context, hostPort string, wait time.Duration) (*L
 		if hostPort != "" {
 			// A fresh port each time, so a listener left by a dropped connection never blocks the next session.
 			port = 20000 + rand.IntN(10000)
-			args = append(args, "-R", fmt.Sprintf("%d:127.0.0.1:%s", port, hostPort))
+			args = append(args, "-R", remoteForward(port, hostPort))
 		}
 		lease, err := s.lease(ctx, append(args, s.Target, "--", remote), port)
 		if err == nil {
@@ -123,6 +123,11 @@ func (s SSH) Lease(ctx context.Context, hostPort string, wait time.Duration) (*L
 		}
 	}
 	return nil, lastErr
+}
+
+// remoteForward is the tunnel of a turn: the board's loopback port leading to the read-only registry port on this machine. The explicit 127.0.0.1 keeps the listener off the board's network under any GatewayPorts setting of its sshd.
+func remoteForward(port int, hostPort string) string {
+	return fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%s", port, hostPort)
 }
 
 func (s SSH) lease(ctx context.Context, args []string, port int) (*Lease, error) {

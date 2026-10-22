@@ -103,8 +103,11 @@ func text(v any) string {
 		if len(r.Containers) > 0 {
 			sb.WriteString("containers:\n")
 			for _, c := range r.Containers {
-				fmt.Fprintf(&sb, "  %s  %s  %s\n", c.Name, c.Image, orDash(c.Revision))
+				fmt.Fprintf(&sb, "  %s  %s  %s  %s\n", c.Name, c.Image, orDash(c.Revision), orDash(c.Digest))
 			}
+		}
+		if len(r.DifferingImages) > 0 {
+			fmt.Fprintf(&sb, "WARNING: images on the board differ from the host registry, swapped under the tag or not pulled again: %s\n", strings.Join(r.DifferingImages, ", "))
 		}
 		if r.Log != "" {
 			fmt.Fprintf(&sb, "log of this run:\n%s\n", indent(r.Log))

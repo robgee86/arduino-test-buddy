@@ -50,7 +50,7 @@ flowchart LR
     checkout --> push
     push -->|wheel + bake| builder
     builder -->|direct push| registry
-    run -->|turn + tunnel, for one run| cli
+    run -->|turn + read-only tunnel, for one run| cli
     cli -->|pulls only what the app uses| registry
     cli --> app
     app -->|log of this run, image revision| run
