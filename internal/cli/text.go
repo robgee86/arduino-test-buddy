@@ -19,6 +19,7 @@ func text(v any) string {
 	switch r := v.(type) {
 	case *board.Preflight:
 		fmt.Fprintf(&sb, "board: %s (%s)  cli: %s  disk free: %d MB\n", r.Board, r.Hostname, r.CLIVersion, r.DiskFreeMB)
+		fmt.Fprintf(&sb, "kernel: %s\n", r.Kernel)
 		if r.Dev.Enabled() {
 			fmt.Fprintf(&sb, "dev tag: %s  pulled: %s\n", r.Dev.Tag, orNone(r.DevImages))
 		}

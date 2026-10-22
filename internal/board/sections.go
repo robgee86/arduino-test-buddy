@@ -13,10 +13,11 @@ import (
 const sectionMarker = "@@"
 
 // sectioned prefixes every command with a marker line so one script yields named outputs.
+// The marker starts on a fresh line so output without a trailing newline cannot swallow it.
 func sectioned(commands map[string]string, order []string) string {
 	parts := make([]string, 0, len(order))
 	for _, name := range order {
-		parts = append(parts, shell.Join("echo", sectionMarker+name), commands[name]+" 2>/dev/null || true")
+		parts = append(parts, shell.Join("printf", `\n%s\n`, sectionMarker+name), commands[name]+" 2>/dev/null || true")
 	}
 	return shell.Script(parts...)
 }
