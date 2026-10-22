@@ -21,8 +21,8 @@ From an `app-bricks-py` checkout of the branch to test:
 $ arduino-test-buddy up                                          # start the registry and the builder
 $ arduino-test-buddy push                                        # wheel + every image, pushed to the registry on this machine; prints the tag
 $ arduino-test-buddy --board ventunoq --tag my-branch preflight  # disk, CLI, apps, images, devices, as facts
-$ arduino-test-buddy --board ventunoq --tag my-branch run --dir ./bt-mytest
-$ arduino-test-buddy --board unoq --tag my-branch run --dir ./bt-mytest      # same images, another board
+$ arduino-test-buddy --board ventunoq --tag my-branch run host:./bt-mytest
+$ arduino-test-buddy --board unoq --tag my-branch run host:./bt-mytest      # same images, another board
 $ arduino-test-buddy --board ventunoq --tag my-branch examples --brick weather_forecast
 $ arduino-test-buddy --board ventunoq --tag my-branch run examples:bricks/arduino/weather_forecast/01_weather_forecast_by_city_example
 $ arduino-test-buddy --board ventunoq --tag my-branch cleanup --brick weather_forecast

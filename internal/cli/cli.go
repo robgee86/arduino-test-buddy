@@ -181,13 +181,11 @@ func examplesCmd(o *options) *cobra.Command {
 func runCmd(o *options) *cobra.Command {
 	req := board.RunRequest{}
 	cmd := &cobra.Command{
-		Use:   "run [app|examples:<path>]",
+		Use:   "run <examples:<path>|user:<name>|host:<folder>>",
 		Short: "Start an app, wait for a marker in the log of this run, record its containers, stop it",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 1 {
-				req.App = args[0]
-			}
+			req.App = args[0]
 			b, err := o.target()
 			if err != nil {
 				return err
@@ -200,7 +198,6 @@ func runCmd(o *options) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&req.LocalDir, "dir", "", "local app folder to copy to the board first")
 	f.StringVar(&req.Marker, "marker", "", "regex that ends the run; default "+board.DefaultMarker+", or "+board.ExampleMarker+" for examples")
 	f.DurationVar(&req.Timeout, "timeout", 2*time.Minute, "how long to wait for the marker")
 	f.BoolVar(&req.KeepRunning, "keep", false, "leave the app running")

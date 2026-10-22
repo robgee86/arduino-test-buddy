@@ -42,7 +42,7 @@ Lists the shipped examples of a brick, named by the brick id (`video_object_dete
 
 ## run
 
-Copies the local app folder if given, holds the host registry so a `down` waits for the run, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
+Takes `examples:<path>` for a shipped example, `user:<name>` or a bare name for an app on the board, stored as `bt-<tag>-<name>` so sessions never collide, or `host:<folder>` for an app folder on this machine, copied to the board first under its folder name. It holds the host registry so a `down` waits for the run, waits for the session's turn, opens a tunnel from the board to the host registry on a fresh port, starts the app or example, polls the log and the container state, and stops the app unless asked to keep it running. The board pulls only the images the app's compose files name. The result is the evidence of the run:
 
 - The log of this run only, cut at the last `App is starting` line, so an old traceback never shadows a healthy restart.
 - Each container with its image and the revision label the image was built from.
