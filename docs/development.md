@@ -34,7 +34,7 @@ The same `ssh` tests run on the Linux runner against its own `sshd`, and against
 
 ## CI and releases
 
-`check.yml` runs `task check` on every push to `main` and on pull requests, on a Linux and a Windows runner, then the tests of the real `ssh` client against an `sshd` it starts on each.
+`check.yml` runs `task check` on every push to `main` and on pull requests, on a Linux, a Windows and a macOS runner, and fetches the released program through the plugin's launcher on each. On Linux and Windows it then runs the tests of the real `ssh` client against a Linux `sshd` it starts there; a macOS runner cannot start one.
 
 `release.yml` runs on every push to `main`. [release-please](https://github.com/googleapis/release-please) reads the Conventional Commits since the last release and keeps a release pull request up to date with the next version and the changelog; the first release is `0.1.0`, and while in the 0.x range `feat` commits bump the minor version, `fix` commits the patch, and a breaking change bumps the minor version too, so the 1.0.0 release happens only when you ask for it with a `Release-As: 1.0.0` footer. Merging that pull request creates the tag and the GitHub release, and the same workflow then runs goreleaser on the tag to build the binaries for macOS and Linux and attach the archives and checksums. Both steps live in one workflow because a tag created with the workflow token triggers no other workflow.
 
