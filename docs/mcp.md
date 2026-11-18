@@ -4,18 +4,22 @@
 
 ## Claude Code plugin
 
-This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) starts the installed binary as the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for. The repository holds no catalog of its own: the [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins) catalog lists it, with this repository as the plugin's source.
+This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) declares the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for. The repository holds no catalog of its own: the [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins) catalog lists it, with this repository as the plugin's source.
 
 ```console
 $ claude plugin marketplace add robgee86/arduino-claude-plugins
 $ claude plugin install arduino-test-buddy@arduino-claude-plugins
 ```
 
-The binary must be on the `PATH`, the plugin does not install it. The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill of each new release. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand with the same command takes precedence and the plugin's copy is not started, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
+Installing the plugin is all it takes: the plugin brings the program too. Its server entry starts [scripts/arduino-test-buddy.sh](../scripts/arduino-test-buddy.sh), which runs the program of the plugin's version from the plugin's data folder. When that program is missing, on the first start and after each plugin update, the script downloads the release archive for the machine from GitHub, refuses it unless it matches the release's checksums, unpacks it, and drops the older versions. This takes a few seconds once and needs `curl` or `wget`, and network access to GitHub. The program is never looked up on the `PATH`, so a copy installed by hand plays no part. A fetch gets 20 seconds, since Claude Code gives a server 30 to start; `ARDUINO_TEST_BUDDY_FETCH_SECONDS` in the server's `env` changes that. When an update cannot be fetched, the launcher runs the newest version it kept, says so on stderr and tries again at the next start; until then the new skill works with the older program. A first start has no kept version: if its download fails, the server does not start, and Claude Code then leaves a server that failed alone for 15 minutes, also in new sessions, so the server comes back by itself a quarter of an hour later.
+
+The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill and the program of each new release together. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand under another name runs next to the plugin's and doubles every tool, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
+
+The launcher is a shell script, so the plugin's server needs `sh`. On native Windows that means the `bin` folder of Git for Windows on the `PATH`; without it, register the server by hand as below.
 
 ## By hand
 
-Without the plugin, or with another agent, install the two parts yourself.
+Without the plugin, or with another agent, install the two parts yourself, after the program, which then has to be on the `PATH`.
 
 - The server: `claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp` for Claude Code, or the same command registered as a stdio server in any MCP client.
 - The skill: copy [skills/board-test](../skills/board-test) into the agent's skills folder, `~/.claude/skills/` for Claude Code. It is a plain folder, a `SKILL.md` with the files it links. An agent without skills can be given the `SKILL.md` as instructions.

@@ -6,20 +6,22 @@ It replaces the SSH juggling of a board test session with a handful of calls tha
 
 ## Install
 
-Needs macOS or Linux, Go 1.26, Docker with buildx, [Task](https://taskfile.dev), uv, and an SSH alias for each board in `~/.ssh/config`. Windows works through WSL; native Windows is experimental, see [docs/development.md](docs/development.md#windows).
+Needs macOS or Linux, Docker with buildx, [Task](https://taskfile.dev), uv, and an SSH alias for each board in `~/.ssh/config`. Windows works through WSL; native Windows is experimental, see [docs/development.md](docs/development.md#windows).
 
-```console
-$ go install github.com/robgee86/arduino-test-buddy/cmd/arduino-test-buddy@latest
-```
-
-For Claude Code, this repository is a plugin that adds the MCP server and the `board-test` skill. The skill holds the test workflow and loads only when a board test is asked for, so it costs no context the rest of the time. The [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins) catalog offers it:
+For Claude Code, install the plugin and nothing else. It adds the MCP server and the `board-test` skill, and it fetches the program of its own version from the release the first time the server starts. The skill holds the test workflow and loads only when a board test is asked for, so it costs no context the rest of the time. The [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins) catalog offers it:
 
 ```console
 $ claude plugin marketplace add robgee86/arduino-claude-plugins
 $ claude plugin install arduino-test-buddy@arduino-claude-plugins
 ```
 
-Any other agent takes the two parts by hand: register `arduino-test-buddy mcp` as a stdio MCP server and copy [skills/board-test](skills/board-test) into its skills folder. Either way, describe your boards once in `~/.config/arduino-test-buddy/boards.yaml`, starting from [boards.example.yaml](skills/board-test/boards.example.yaml). See [docs/mcp.md](docs/mcp.md).
+For the CLI, or for any other agent, install the program yourself, from a [release](https://github.com/robgee86/arduino-test-buddy/releases) or with Go 1.26:
+
+```console
+$ go install github.com/robgee86/arduino-test-buddy/cmd/arduino-test-buddy@latest
+```
+
+Another agent then takes the two parts by hand: register `arduino-test-buddy mcp` as a stdio MCP server and copy [skills/board-test](skills/board-test) into its skills folder. Either way, describe your boards once in `~/.config/arduino-test-buddy/boards.yaml`, starting from [boards.example.yaml](skills/board-test/boards.example.yaml). See [docs/mcp.md](docs/mcp.md).
 
 ## Quickstart
 
