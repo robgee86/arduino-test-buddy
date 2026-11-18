@@ -65,11 +65,14 @@ func (h *Host) Up(ctx context.Context) (*Status, error) {
 		if err := os.MkdirAll(h.RegistryDir(), 0o755); err != nil {
 			return nil, err
 		}
-		// Running as the user keeps every file in the folder deletable without root.
-		user := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-		if err := h.do(ctx, "start the registry", "docker", "run", "-d", "--name", RegistryName, "--user", user,
-			"-p", "127.0.0.1:"+RegistryPort+":5000", "-v", h.RegistryDir()+":/var/lib/registry",
-			"-e", "REGISTRY_STORAGE_DELETE_ENABLED=true", RegistryImage); err != nil {
+		args := []string{"run", "-d", "--name", RegistryName}
+		// Running as the user keeps every file in the folder deletable without root; Windows has no user id, and Docker maps the folder to the user there.
+		if uid := os.Getuid(); uid >= 0 {
+			args = append(args, "--user", strconv.Itoa(uid)+":"+strconv.Itoa(os.Getgid()))
+		}
+		args = append(args, "-p", "127.0.0.1:"+RegistryPort+":5000", "-v", h.RegistryDir()+":/var/lib/registry",
+			"-e", "REGISTRY_STORAGE_DELETE_ENABLED=true", RegistryImage)
+		if err := h.do(ctx, "start the registry", "docker", args...); err != nil {
 			return nil, err
 		}
 	case Stopped:
@@ -183,11 +186,16 @@ func (h *Host) tags() []Tag {
 	root := h.repositories()
 	byName := map[string]*Tag{}
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, "/"+tagLink) {
+		if err != nil || d.IsDir() {
 			return nil
 		}
-		rel, _ := filepath.Rel(root, strings.TrimSuffix(path, "/"+tagLink))
-		repo, name, ok := strings.Cut(rel, "/_manifests/tags/")
+		// The registry's layout is read with forward slashes on every platform.
+		rel, relErr := filepath.Rel(root, path)
+		rel = filepath.ToSlash(rel)
+		if relErr != nil || !strings.HasSuffix(rel, "/"+tagLink) {
+			return nil
+		}
+		repo, name, ok := strings.Cut(strings.TrimSuffix(rel, "/"+tagLink), "/_manifests/tags/")
 		info, statErr := d.Info()
 		if !ok || statErr != nil {
 			return nil

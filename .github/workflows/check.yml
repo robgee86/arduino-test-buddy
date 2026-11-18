@@ -7,7 +7,11 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -17,3 +21,46 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: task check
+      - name: Check the release build config
+        if: runner.os == 'Linux'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+      # The tests of the real ssh client need a Linux sshd: the runner's own on Linux, one in a WSL distribution on Windows.
+      - name: Start a Linux sshd on the runner
+        if: runner.os == 'Linux'
+        run: |
+          command -v sshd >/dev/null || sudo apt-get install -y openssh-server
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/bt_key
+          cat ~/.ssh/bt_key.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl start ssh
+          printf 'Host bt-target\n  HostName 127.0.0.1\n  User %s\n  IdentityFile ~/.ssh/bt_key\n  StrictHostKeyChecking no\n' "$USER" >> ~/.ssh/config
+      - uses: Vampire/setup-wsl@v7
+        if: runner.os == 'Windows'
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 1
+          additional-packages: openssh-server curl
+      - name: Start a Linux sshd in WSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ssh = "$env:USERPROFILE\.ssh"
+          New-Item -ItemType Directory -Force $ssh | Out-Null
+          ssh-keygen -q -t ed25519 -N '""' -f "$ssh\bt_key"
+          Get-Content "$ssh\bt_key.pub" | wsl -u root -- sh -c "mkdir -p /root/.ssh /run/sshd && tr -d '\r' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys && ssh-keygen -A"
+          Start-Process wsl -ArgumentList '-u', 'root', '--', '/usr/sbin/sshd', '-D', '-p', '2222' -WindowStyle Hidden
+          Add-Content "$ssh\config" "Host bt-target`n  HostName 127.0.0.1`n  Port 2222`n  User root`n  IdentityFile $ssh\bt_key`n  StrictHostKeyChecking no"
+          Write-Output "ssh client: $((Get-Command ssh).Source)"
+      - name: Wait for the sshd
+        shell: bash
+        run: |
+          for i in $(seq 1 30); do ssh -o BatchMode=yes -o ConnectTimeout=5 bt-target true && exit 0; sleep 1; done
+          echo "the ssh target does not answer"; exit 1
+      - name: Test the real ssh client against it
+        run: go test ./internal/board -run TestSSH -v -count=1
+        env:
+          BUDDY_TEST_SSH_TARGET: bt-target

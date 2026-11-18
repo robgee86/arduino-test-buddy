@@ -6,7 +6,7 @@ It replaces the SSH juggling of a board test session with a handful of calls tha
 
 ## Install
 
-Needs macOS or Linux (Windows through WSL), Go 1.26, Docker with buildx, [Task](https://taskfile.dev), uv, and an SSH alias for each board in `~/.ssh/config`.
+Needs macOS or Linux, Go 1.26, Docker with buildx, [Task](https://taskfile.dev), uv, and an SSH alias for each board in `~/.ssh/config`. Windows works through WSL; native Windows is experimental, see [docs/development.md](docs/development.md#windows).
 
 ```console
 $ go install github.com/robgee86/arduino-test-buddy/cmd/arduino-test-buddy@latest
