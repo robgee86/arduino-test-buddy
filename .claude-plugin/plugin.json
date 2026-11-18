@@ -6,5 +6,13 @@
     "name": "Roberto Gazia"
   },
   "repository": "https://github.com/robgee86/arduino-test-buddy",
-  "license": "GPL-3.0-or-later"
+  "license": "GPL-3.0-or-later",
+  "mcpServers": {
+    "buddy": {
+      "command": "arduino-test-buddy",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
 }

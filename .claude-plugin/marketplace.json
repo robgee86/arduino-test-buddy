@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "arduino-test-buddy",
-      "source": "./plugin",
+      "source": "./",
       "description": "The board-test skill and the arduino-test-buddy MCP server it drives"
     }
   ]

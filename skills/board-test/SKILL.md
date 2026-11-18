@@ -37,4 +37,4 @@ State the board and tag, the revision and the dev image digests the containers r
 
 ## Board descriptors
 
-`boards/*.yaml` describe board models: features with their `check` commands, `platform_key` selecting the `brick_compose.<platform_key>.yaml` variant, storage thresholds. Add a model by copying `boards/TEMPLATE.yaml` in the `arduino-test-buddy` repository, under `plugin/skills/board-test/boards/`: an installed copy is replaced on update. Record only verified facts, with the `scouted` date.
+`boards/*.yaml` describe board models: features with their `check` commands, `platform_key` selecting the `brick_compose.<platform_key>.yaml` variant, storage thresholds. Add a model by copying `boards/TEMPLATE.yaml` in the `arduino-test-buddy` repository, under `skills/board-test/boards/`: an installed copy is replaced on update. Record only verified facts, with the `scouted` date.

@@ -4,7 +4,7 @@
 
 ## Claude Code plugin
 
-The plugin in [plugin/](../plugin) bundles the two: it starts the installed binary as its MCP server and ships the skill, which Claude Code loads only when a board test is asked for.
+This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) starts the installed binary as the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for.
 
 ```console
 $ claude plugin marketplace add robgee86/arduino-test-buddy
@@ -18,11 +18,11 @@ The binary must be on the `PATH`, the plugin does not install it. On Windows the
 Without the plugin, or with another agent, install the two parts yourself.
 
 - The server: `claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp` for Claude Code, or the same command registered as a stdio server in any MCP client.
-- The skill: copy [plugin/skills/board-test](../plugin/skills/board-test) into the agent's skills folder, `~/.claude/skills/` for Claude Code. It is a plain folder, a `SKILL.md` with the files it links. An agent without skills can be given the `SKILL.md` as instructions.
+- The skill: copy [skills/board-test](../skills/board-test) into the agent's skills folder, `~/.claude/skills/` for Claude Code. It is a plain folder, a `SKILL.md` with the files it links. An agent without skills can be given the `SKILL.md` as instructions.
 
 ## Boards of the developer
 
-The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../plugin/skills/board-test/boards.example.yaml) there and edit it. It lives outside the plugin, whose folder is replaced on every update.
+The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../skills/board-test/boards.example.yaml) there and edit it. It lives outside the repository, whose installed copy is replaced on every update.
 
 ## Tools
 

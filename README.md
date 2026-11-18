@@ -19,7 +19,7 @@ $ claude plugin marketplace add robgee86/arduino-test-buddy
 $ claude plugin install arduino-test-buddy@arduino-test-buddy
 ```
 
-Any other agent takes the two parts by hand: register `arduino-test-buddy mcp` as a stdio MCP server and copy [plugin/skills/board-test](plugin/skills/board-test) into its skills folder. Either way, describe your boards once in `~/.config/arduino-test-buddy/boards.yaml`, starting from [boards.example.yaml](plugin/skills/board-test/boards.example.yaml). See [docs/mcp.md](docs/mcp.md).
+Any other agent takes the two parts by hand: register `arduino-test-buddy mcp` as a stdio MCP server and copy [skills/board-test](skills/board-test) into its skills folder. Either way, describe your boards once in `~/.config/arduino-test-buddy/boards.yaml`, starting from [boards.example.yaml](skills/board-test/boards.example.yaml). See [docs/mcp.md](docs/mcp.md).
 
 ## Quickstart
 

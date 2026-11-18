@@ -28,7 +28,7 @@ func TestThePluginCarriesTheVersionOfTheRelease(t *testing.T) {
 	var released map[string]string
 	var manifest struct{ Name, Version string }
 	read(t, ".release-please-manifest.json", &released)
-	read(t, "plugin/.claude-plugin/plugin.json", &manifest)
+	read(t, ".claude-plugin/plugin.json", &manifest)
 	if manifest.Version != released["."] {
 		t.Errorf("the plugin says %s, the release %s: users see a plugin update only when its version moves with the release", manifest.Version, released["."])
 	}
@@ -39,10 +39,11 @@ func TestTheMarketplaceOffersThePluginUnderItsOwnName(t *testing.T) {
 	var marketplace struct {
 		Plugins []struct{ Name, Source string }
 	}
-	read(t, "plugin/.claude-plugin/plugin.json", &manifest)
+	read(t, ".claude-plugin/plugin.json", &manifest)
 	read(t, ".claude-plugin/marketplace.json", &marketplace)
-	if len(marketplace.Plugins) != 1 || marketplace.Plugins[0].Name != manifest.Name || marketplace.Plugins[0].Source != "./plugin" {
-		t.Errorf("the marketplace must offer %q from ./plugin: %+v", manifest.Name, marketplace.Plugins)
+	// The repository root is the plugin, so the skill sits at the top level, where any agent can take it from
+	if len(marketplace.Plugins) != 1 || marketplace.Plugins[0].Name != manifest.Name || marketplace.Plugins[0].Source != "./" {
+		t.Errorf("the marketplace must offer %q from the repository root: %+v", manifest.Name, marketplace.Plugins)
 	}
 }
 
@@ -50,19 +51,22 @@ func TestTheMarketplaceOffersThePluginUnderItsOwnName(t *testing.T) {
 const longestTool = len("board_preflight")
 
 func TestThePluginStartsTheInstalledBinaryAsItsServer(t *testing.T) {
-	var manifest struct{ Name string }
-	read(t, "plugin/.claude-plugin/plugin.json", &manifest)
-	var servers struct {
+	// The server is declared in the manifest: a .mcp.json at the root would also register it for whoever opens this repository
+	var manifest struct {
+		Name       string
 		MCPServers map[string]struct {
 			Command string
 			Args    []string
 		} `json:"mcpServers"`
 	}
-	read(t, "plugin/.mcp.json", &servers)
-	if len(servers.MCPServers) != 1 {
-		t.Fatalf("the plugin must define one server: %+v", servers.MCPServers)
+	read(t, ".claude-plugin/plugin.json", &manifest)
+	if _, err := os.Stat(filepath.Join(root, ".mcp.json")); err == nil {
+		t.Error("a .mcp.json at the root registers the server for every session in this repository")
 	}
-	for name, s := range servers.MCPServers {
+	if len(manifest.MCPServers) != 1 {
+		t.Fatalf("the plugin must define one server: %+v", manifest.MCPServers)
+	}
+	for name, s := range manifest.MCPServers {
 		if s.Command != "arduino-test-buddy" || len(s.Args) != 1 || s.Args[0] != "mcp" {
 			t.Errorf("the plugin must run `arduino-test-buddy mcp`: %+v", s)
 		}
@@ -74,7 +78,7 @@ func TestThePluginStartsTheInstalledBinaryAsItsServer(t *testing.T) {
 }
 
 func TestTheSkillShipsEveryFileItLinks(t *testing.T) {
-	skill := filepath.Join(root, "plugin/skills/board-test")
+	skill := filepath.Join(root, "skills/board-test")
 	text, err := os.ReadFile(filepath.Join(skill, "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
