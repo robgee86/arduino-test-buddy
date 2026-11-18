@@ -44,22 +44,33 @@ jobs:
           distribution: Ubuntu-24.04
           wsl-version: 1
           additional-packages: openssh-server curl
-      - name: Start a Linux sshd in WSL
+      - name: Set up a Linux sshd in WSL
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          # Git's shell would rewrite the Linux paths below into Windows ones
+          MSYS_NO_PATHCONV: 1
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/bt_key
+          wsl -u root -- sh -c "mkdir -p /root/.ssh /run/sshd && tr -d '\r' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys && ssh-keygen -A" < ~/.ssh/bt_key.pub
+          printf 'Host bt-target\n  HostName 127.0.0.1\n  Port 2222\n  User root\n  IdentityFile ~/.ssh/bt_key\n  StrictHostKeyChecking no\n' >> ~/.ssh/config
+      - name: Start the sshd in WSL
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $ssh = "$env:USERPROFILE\.ssh"
-          New-Item -ItemType Directory -Force $ssh | Out-Null
-          ssh-keygen -q -t ed25519 -N '""' -f "$ssh\bt_key"
-          Get-Content "$ssh\bt_key.pub" | wsl -u root -- sh -c "mkdir -p /root/.ssh /run/sshd && tr -d '\r' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys && ssh-keygen -A"
-          Start-Process wsl -ArgumentList '-u', 'root', '--', '/usr/sbin/sshd', '-D', '-p', '2222' -WindowStyle Hidden
-          Add-Content "$ssh\config" "Host bt-target`n  HostName 127.0.0.1`n  Port 2222`n  User root`n  IdentityFile $ssh\bt_key`n  StrictHostKeyChecking no"
-          Write-Output "ssh client: $((Get-Command ssh).Source)"
+        run: Start-Process wsl -ArgumentList '-u', 'root', '--', '/usr/sbin/sshd', '-D', '-p', '2222' -WindowStyle Hidden
       - name: Wait for the sshd
-        shell: bash
+        shell: pwsh
         run: |
-          for i in $(seq 1 30); do ssh -o BatchMode=yes -o ConnectTimeout=5 bt-target true && exit 0; sleep 1; done
-          echo "the ssh target does not answer"; exit 1
+          Write-Output "ssh client: $((Get-Command ssh).Source)"
+          foreach ($i in 1..30) {
+            ssh -o BatchMode=yes -o ConnectTimeout=5 bt-target true
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep 1
+          }
+          ssh -v -o BatchMode=yes -o ConnectTimeout=5 bt-target true 2>&1 | Select-Object -Last 40
+          Write-Output "the ssh target does not answer"
+          exit 1
       - name: Test the real ssh client against it
         run: go test ./internal/board -run TestSSH -v -count=1
         env:
