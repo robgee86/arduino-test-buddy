@@ -9,7 +9,7 @@ $ task plugin:check     # validate the Claude Code plugin manifest, needs the cl
 $ task release:snapshot # every platform locally, needs goreleaser
 ```
 
-Tests use a fake SSH runner, a fake command runner and an in-process fake registry, and never touch a board, Docker or the network. They pin the behavior that matters on shared boards and a shared cache: the exact cleanup commands for a session, turns taken by run and cleanup, the tunnel port used for pulls, the dev variables present on run calls and absent on cleanup calls, the early exit when a container dies, pruning only after a full push and never during another one, the tags not pushed for 3 days dropped with the cache and the pushed one kept, the images an app pulled recorded by run and removed by cleanup.
+Tests use a fake SSH runner, a fake command runner and an in-process fake registry, and never touch a board, Docker or the network. They pin the behavior that matters on shared boards and a shared cache: the exact cleanup commands for a session, turns taken by run and cleanup, the tunnel port used for pulls, the dev variables present on run calls and absent on cleanup calls, the early exit when a container dies, pruning only after a full push and never during another one, the tags not pushed for 3 days dropped with the cache and the pushed one kept, the images an app pulled recorded by run and removed by cleanup, the server ending on a stop while a request is still open.
 
 ## Windows
 
