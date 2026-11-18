@@ -45,17 +45,20 @@ type Commander interface {
 // Exec runs commands as child processes.
 type Exec struct{}
 
-// Run executes one command with env added to the current environment.
+// Run executes one command with env added to the current environment. When ctx ends, the command ends with the processes it started.
 func (Exec) Run(ctx context.Context, dir string, env []string, name string, args ...string) (string, int) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
+	endWithChildren(cmd)
+	// A process the command started can outlive it and keep its output open: Run does not wait for that one.
+	cmd.WaitDelay = time.Second
 	err := cmd.Run()
 	var exitErr *exec.ExitError
 	switch {
-	case err == nil:
+	case err == nil, errors.Is(err, exec.ErrWaitDelay):
 		return out.String(), 0
 	case errors.As(err, &exitErr):
 		return out.String(), exitErr.ExitCode()

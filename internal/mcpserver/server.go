@@ -7,6 +7,8 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -102,7 +104,10 @@ type cleanupIn struct {
 	board.CleanupRequest
 }
 
-// Serve registers the tools and blocks until the client disconnects.
+// stopGrace is how long the running calls get to return once the session ends.
+const stopGrace = 2 * time.Second
+
+// Serve registers the tools and blocks until the client disconnects or ctx ends.
 func Serve(ctx context.Context, defaults Defaults) error {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "arduino-test-buddy",
@@ -110,8 +115,57 @@ func Serve(ctx context.Context, defaults Defaults) error {
 		Version: version.Version,
 	}, nil)
 	register(server, defaults)
-	return server.Run(ctx, &mcp.StdioTransport{})
+	return serve(ctx, server, os.Stdin, os.Stdout, stopGrace)
 }
+
+// serve runs the server over in and out until the session ends: ctx ends or the client leaves, which shows as in ending or out failing. The running calls are then cancelled and get grace to return.
+func serve(ctx context.Context, server *mcp.Server, in io.Reader, out io.Writer, grace time.Duration) error {
+	ctx, end := context.WithCancel(ctx)
+	defer end()
+	// The SDK cancels the running calls only when its input ends, and a read of stdin cannot be interrupted: the input goes through a pipe that ends with the session.
+	input, feed := io.Pipe()
+	go func() {
+		io.Copy(feed, in)
+		end()
+	}()
+	context.AfterFunc(ctx, func() { feed.Close() })
+
+	ran := make(chan error, 1)
+	go func() {
+		ran <- server.Run(context.WithoutCancel(ctx), &mcp.IOTransport{Reader: input, Writer: clientOutput{out, end}})
+	}()
+	var err error
+	select {
+	case err = <-ran:
+	case <-ctx.Done():
+		select {
+		case err = <-ran:
+		case <-time.After(grace):
+			return fmt.Errorf("the session ended with a call still running after %s", grace)
+		}
+	}
+	// Once the session ended, what the SDK reports is that end and not a failure.
+	if ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+// clientOutput writes to the client and ends the session when the client is gone. It leaves stdout open, which the process owns.
+type clientOutput struct {
+	io.Writer
+	gone func()
+}
+
+func (o clientOutput) Write(p []byte) (int, error) {
+	n, err := o.Writer.Write(p)
+	if err != nil {
+		o.gone()
+	}
+	return n, err
+}
+
+func (clientOutput) Close() error { return nil }
 
 func register(s *mcp.Server, d Defaults) {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}

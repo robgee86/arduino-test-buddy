@@ -59,6 +59,8 @@ Defaults for the board, tag, registry and turn wait can be baked into the regist
 
 Results are structured content, the same JSON `--format json` prints. Errors of the operation itself, such as a failed start, come back inside the result so the agent can read them; only unreachable boards and malformed input are tool errors.
 
+The server ends when the client closes its end or sends it an interrupt or a terminate signal. Either way the running calls are cancelled, and the server exits once they return, or 2 seconds later. A cancelled `buddy_push` ends its build with every process the build started; on Windows only the build command itself ends.
+
 ## Timeouts
 
 `buddy_push` on a machine without a warm build cache, `board_run` on a first start that pulls a runner image, and either board tool queueing behind another session's turn take minutes. Raise the MCP tool timeout of the client for those calls; the tool itself has no limit besides the run's own `timeout_seconds`.
