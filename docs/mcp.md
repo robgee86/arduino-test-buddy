@@ -11,7 +11,7 @@ $ claude plugin marketplace add robgee86/arduino-test-buddy
 $ claude plugin install arduino-test-buddy@arduino-test-buddy
 ```
 
-The binary must be on the `PATH`, the plugin does not install it. The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill of each new release. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand with the same command takes precedence and the plugin's copy is not started, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
+The binary must be on the `PATH`, the plugin does not install it. On Windows the binary runs in WSL only, so Claude Code must run inside WSL too, next to it. The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill of each new release. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand with the same command takes precedence and the plugin's copy is not started, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
 
 ## By hand
 
