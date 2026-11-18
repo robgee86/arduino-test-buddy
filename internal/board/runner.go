@@ -56,13 +56,24 @@ type SSH struct {
 
 var sshOptions = []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
 
+// command builds the ssh call that runs script on the board. A target ssh would read as an option is refused: an option can run a program on this machine.
+func (s SSH) command(ctx context.Context, options []string, script string) (*exec.Cmd, error) {
+	if s.Target == "" || strings.HasPrefix(s.Target, "-") {
+		return nil, fmt.Errorf("%q is not a board: want an SSH alias or user@host", s.Target)
+	}
+	args := append(append(append([]string{}, sshOptions...), options...), s.Target, "--", script)
+	return exec.CommandContext(ctx, "ssh", args...), nil
+}
+
 // Run executes script on the board and returns its output; a non-zero exit is not a Go error.
 func (s SSH) Run(ctx context.Context, script string) (Output, error) {
-	args := append(append([]string{}, sshOptions...), s.Target, "--", script)
-	cmd := exec.CommandContext(ctx, "ssh", args...)
+	cmd, err := s.command(ctx, nil, script)
+	if err != nil {
+		return Output{}, err
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	out := Output{Stdout: stdout.String(), Stderr: stderr.String()}
 	var exitErr *exec.ExitError
 	switch {
@@ -81,7 +92,10 @@ func (s SSH) Run(ctx context.Context, script string) (Output, error) {
 // Push replaces remoteDir with a copy of the contents of localDir, archived here and streamed to the board's tar, so the developer machine needs neither tar nor a shell.
 func (s SSH) Push(ctx context.Context, localDir, remoteDir string) error {
 	remote := shell.Join("rm", "-rf", remoteDir) + " && " + shell.Join("mkdir", "-p", remoteDir) + " && " + shell.Join("tar", "xzf", "-", "-C", remoteDir)
-	cmd := exec.CommandContext(ctx, "ssh", append(append([]string{}, sshOptions...), s.Target, "--", remote)...)
+	cmd, err := s.command(ctx, nil, remote)
+	if err != nil {
+		return err
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -118,13 +132,13 @@ func (s SSH) Lease(ctx context.Context, hostPort string, wait time.Duration) (*L
 	var lastErr error
 	for range 5 {
 		port := 0
-		args := append(append([]string{}, sshOptions...), "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4")
+		options := []string{"-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4"}
 		if hostPort != "" {
 			// A fresh port each time, so a listener left by a dropped connection never blocks the next session.
 			port = 20000 + rand.IntN(10000)
-			args = append(args, "-R", remoteForward(port, hostPort))
+			options = append(options, "-R", remoteForward(port, hostPort))
 		}
-		lease, err := s.lease(ctx, append(args, s.Target, "--", remote), port)
+		lease, err := s.lease(ctx, options, remote, port)
 		if err == nil {
 			return lease, nil
 		}
@@ -141,8 +155,11 @@ func remoteForward(port int, hostPort string) string {
 	return fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%s", port, hostPort)
 }
 
-func (s SSH) lease(ctx context.Context, args []string, port int) (*Lease, error) {
-	cmd := exec.CommandContext(ctx, "ssh", args...)
+func (s SSH) lease(ctx context.Context, options []string, remote string, port int) (*Lease, error) {
+	cmd, err := s.command(ctx, options, remote)
+	if err != nil {
+		return nil, err
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

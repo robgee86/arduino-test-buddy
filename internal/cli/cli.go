@@ -139,7 +139,7 @@ func pushCmd(o *options) *cobra.Command {
 		})
 	f := cmd.Flags()
 	f.StringVar(&req.Source, "source", "", "app-bricks-py checkout to build from; default the current folder when it is one, else the source set in ~/.config/arduino-test-buddy/config.yaml")
-	f.StringSliceVar(&req.Targets, "targets", nil, "bake targets to build and push, default every container")
+	f.StringSliceVar(&req.Targets, "targets", nil, "names of the bake targets to build and push, default every container")
 	f.BoolVar(&req.SkipWheel, "skip-wheel", false, "reuse dist/ instead of rebuilding the wheel")
 	return cmd
 }
@@ -297,7 +297,7 @@ func cleanupCmd(o *options) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&req.Brick, "brick", "", "brick whose example containers and networks are removed")
-	f.StringArrayVar(&req.Apps, "app", nil, "extra user app to destroy, repeatable")
+	f.StringArrayVar(&req.Apps, "app", nil, "extra user app to destroy, named by its folder in ArduinoApps, repeatable")
 	f.BoolVar(&req.DryRun, "dry-run", false, "list the steps without running them")
 	return cmd
 }

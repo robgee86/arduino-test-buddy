@@ -18,7 +18,7 @@ import (
 type PushRequest struct {
 	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory when it is one, else the source set in ~/.config/arduino-test-buddy/config.yaml; whether it is a worktree is the caller's choice"`
 	Tag       string   `json:"tag,omitempty" jsonschema:"image tag; default the branch name, or bt-<worktree folder> on a detached HEAD"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also drops the build cache and the tags no push used for 3 days"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"names of the bake targets to build and push; default every container, which also drops the build cache and the tags no push used for 3 days"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
 }
 
@@ -39,8 +39,16 @@ const keep = 72 * time.Hour
 
 var slugRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
+// targetRE is the name of a bake target: anything else would reach bake as an option or as a remote build definition.
+var targetRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
+
 // Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache and the tags no push used for 3 days. It needs the tool up.
 func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
+	for _, t := range req.Targets {
+		if !targetRE.MatchString(t) {
+			return nil, fmt.Errorf("%q is not a bake target: want a name made of letters, digits, _ and -", t)
+		}
+	}
 	source, err := h.source(req.Source)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ package board
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"regexp"
 	"slices"
@@ -19,7 +20,7 @@ const testPrefix = "bt-"
 // CleanupRequest scopes a cleanup to one session: its apps, one brick's examples, the session's images and the images its apps pulled.
 type CleanupRequest struct {
 	Brick  string   `json:"brick,omitempty" jsonschema:"brick whose example containers and networks are removed, e.g. video_objectdetection"`
-	Apps   []string `json:"apps,omitempty" jsonschema:"extra user apps to destroy besides the session's bt-<tag>-* ones"`
+	Apps   []string `json:"apps,omitempty" jsonschema:"extra user apps to destroy besides the session's bt-<tag>-* ones, each named by its folder in ArduinoApps"`
 	DryRun bool     `json:"dry_run,omitempty" jsonschema:"list the steps without running them"`
 }
 
@@ -54,6 +55,11 @@ type CleanupReport struct {
 
 // Cleanup waits for the session's turn, removes the session's artifacts and nothing else, then reports what is left.
 func (b *Board) Cleanup(ctx context.Context, req CleanupRequest) (*CleanupReport, error) {
+	for _, a := range req.Apps {
+		if a == "" || a == "." || a == ".." || strings.Contains(a, "/") {
+			return nil, fmt.Errorf("%q is not an app: want the name of a folder in %s", a, AppsDir)
+		}
+	}
 	var report *CleanupReport
 	_, err := b.withTurn(ctx, false, func(Dev) error {
 		var err error
