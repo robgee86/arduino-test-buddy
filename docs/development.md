@@ -5,7 +5,7 @@ $ task check            # gofmt, vet, tests
 $ task build            # dist/arduino-test-buddy
 $ task install          # into GOPATH/bin, with asdf run `asdf reshim golang` afterwards
 $ task mcp:add          # register the installed binary in Claude Code
-$ task plugin:check     # validate the Claude Code plugin and its marketplace entry, needs the claude CLI
+$ task plugin:check     # validate the Claude Code plugin manifest, needs the claude CLI
 $ task release:snapshot # every platform locally, needs goreleaser
 ```
 
@@ -30,7 +30,7 @@ The same `ssh` tests run on the Linux runner against its own `sshd`, and against
 - `internal/host` holds the developer machine side: the registry, the builder, push and prune, over a `Commander` interface for the child processes.
 - `internal/cli` and `internal/mcpserver` are thin entry points over those methods; the CLI renders text or JSON, the MCP server registers each as a tool.
 - `internal/shell` quotes command lines so no caller ever escapes by hand.
-- `skills/board-test` is the skill, with its references and board descriptors, at the top level since no agent owns it. `.claude-plugin` makes the repository a Claude Code plugin around it: `plugin.json` is the manifest, with the MCP server entry, and `marketplace.json` offers the plugin, so the repository is its own marketplace. Claude Code copies the whole repository on install. `claude --plugin-dir .` loads the working copy for one session.
+- `skills/board-test` is the skill, with its references and board descriptors, at the top level since no agent owns it. `.claude-plugin` makes the repository a Claude Code plugin around it: `plugin.json` is the manifest, with the MCP server entry. The catalog that offers the plugin is a repository of its own, [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins), which names this one as the plugin's source. Claude Code copies the whole repository on install. `claude --plugin-dir .` loads the working copy for one session.
 
 ## CI and releases
 
