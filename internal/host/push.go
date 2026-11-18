@@ -18,7 +18,7 @@ import (
 type PushRequest struct {
 	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
 	Tag       string   `json:"tag,omitempty" jsonschema:"image tag; default the branch name, or bt-<worktree folder> on a detached HEAD"`
-	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also drops build cache no push used for 3 days"`
+	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also drops the build cache and the tags no push used for 3 days"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
 }
 
@@ -32,12 +32,12 @@ type PushResult struct {
 	Error  string   `json:"error,omitempty"`
 }
 
-// cacheKeep is how long build cache entries survive without any push using them: branches tested in parallel keep theirs, abandoned ones age out.
-const cacheKeep = 72 * time.Hour
+// keep is how long build cache entries and registry tags survive without any push using them: branches tested in parallel keep theirs, abandoned ones age out.
+const keep = 72 * time.Hour
 
 var slugRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
-// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache no push used for 3 days. It needs the tool up.
+// Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache and the tags no push used for 3 days. It needs the tool up.
 func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 	source, err := filepath.Abs(req.Source)
 	if err != nil {
@@ -65,20 +65,26 @@ func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 		return nil, err
 	}
 	ok := h.build(ctx, source, revision, req, res)
+	if ok {
+		// The tag is dated before the lock goes, so no prune ever finds a tag just pushed stale.
+		if res.Images, err = h.Images(ctx, req.Tag); err == nil {
+			h.markPushed(res.Images)
+		}
+	}
 	shared.release()
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		return res, nil
-	}
-	if res.Images, err = h.Images(ctx, req.Tag); err != nil {
-		return nil, err
 	}
 	if len(res.Images) == 0 {
 		res.Error = "the build pushed nothing tagged " + req.Tag
 		return res, nil
 	}
-	h.markPushed(res.Images)
 	if len(req.Targets) == 0 {
-		res.Steps = append(res.Steps, h.pruneUnused(ctx))
+		steps, _ := h.pruneUnused(ctx)
+		res.Steps = append(res.Steps, steps...)
 	}
 	return res, nil
 }
@@ -112,24 +118,48 @@ func (h *Host) markPushed(images []string) {
 	}
 }
 
-// pruneUnused drops stale build cache unless another push or prune is running, which then trims when it ends.
-func (h *Host) pruneUnused(ctx context.Context) Step {
+// pruneUnused drops the stale build cache and tags unless a push, a prune or a board run holds the cache, which leaves them to the next up, down or full push. It returns its steps, the cache one first, and the tags it dropped.
+func (h *Host) pruneUnused(ctx context.Context) ([]Step, []string) {
 	exclusive, err := h.lock(true, false)
 	if errors.Is(err, errBusy) {
-		return Step{Name: "prune unused build cache: skipped, another push is running and prunes when it ends"}
+		return []Step{{Name: "prune unused build cache and tags: skipped, a push or a board run is in progress"}}, nil
 	}
 	if err != nil {
-		return Step{Name: "prune unused build cache", Output: err.Error(), ExitCode: -1}
+		return []Step{{Name: "prune unused build cache and tags", Output: err.Error(), ExitCode: -1}}, nil
 	}
 	defer exclusive.release()
-	return h.trimCache(ctx)
+	tags, steps := h.dropStaleTags(ctx)
+	return append([]Step{h.trimCache(ctx)}, steps...), tags
 }
 
-// trimCache drops the build cache no push used within cacheKeep; a full push rebuilds every container, so it refreshes everything its branch still needs. The caller holds the lock.
+// trimCache drops the build cache no push used within keep; a full push rebuilds every container, so it refreshes everything its branch still needs. The caller holds the lock.
 func (h *Host) trimCache(ctx context.Context) Step {
 	step, _ := h.step(ctx, "prune unused build cache", "", nil, "docker", "buildx", "prune", "--builder", BuilderName, "--force",
-		"--filter", fmt.Sprintf("until=%dh", int(cacheKeep.Hours())))
+		"--filter", fmt.Sprintf("until=%dh", int(keep.Hours())))
 	return step
+}
+
+// dropStaleTags deletes the tags no push touched within keep and frees the layers only they used; a board run does not date a tag. The caller holds the lock and the registry runs.
+func (h *Host) dropStaleTags(ctx context.Context) ([]string, []Step) {
+	now := time.Now()
+	var tags, refs []string
+	for _, t := range h.tags() {
+		if !t.Stale(now) {
+			continue
+		}
+		tags = append(tags, t.Name)
+		for _, repo := range t.Images {
+			refs = append(refs, repo+":"+t.Name)
+		}
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	steps, err := h.deleteTags(ctx, refs)
+	if err != nil {
+		steps = append(steps, Step{Name: "wait for the registry", Output: err.Error(), ExitCode: 1})
+	}
+	return tags, steps
 }
 
 func gitRevision(ctx context.Context, dir string) (string, error) {

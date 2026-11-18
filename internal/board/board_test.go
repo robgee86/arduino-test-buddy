@@ -24,6 +24,8 @@ type fakeRunner struct {
 type answer struct {
 	match *regexp.Regexp
 	out   Output
+	// once makes the answer serve a single script, so the same command can answer differently the next time.
+	once bool
 }
 
 // fakePort is the board-side tunnel port every fake turn gets, fakeHostPort the read-only registry port it leads to.
@@ -50,19 +52,28 @@ func tunneled(f *fakeRunner, tag string) *Board {
 }
 
 func (f *fakeRunner) on(pattern string, stdout string) *fakeRunner {
-	f.answers = append(f.answers, answer{regexp.MustCompile(pattern), Output{Stdout: stdout}})
+	f.answers = append(f.answers, answer{match: regexp.MustCompile(pattern), out: Output{Stdout: stdout}})
+	return f
+}
+
+// first answers only the first script matching pattern; later ones fall through to the answers registered after it.
+func (f *fakeRunner) first(pattern string, stdout string) *fakeRunner {
+	f.answers = append(f.answers, answer{match: regexp.MustCompile(pattern), out: Output{Stdout: stdout}, once: true})
 	return f
 }
 
 func (f *fakeRunner) onExit(pattern string, code int, stderr string) *fakeRunner {
-	f.answers = append(f.answers, answer{regexp.MustCompile(pattern), Output{Stderr: stderr, ExitCode: code}})
+	f.answers = append(f.answers, answer{match: regexp.MustCompile(pattern), out: Output{Stderr: stderr, ExitCode: code}})
 	return f
 }
 
 func (f *fakeRunner) Run(_ context.Context, script string) (Output, error) {
 	f.scripts = append(f.scripts, script)
-	for _, a := range f.answers {
+	for i, a := range f.answers {
 		if a.match.MatchString(script) {
+			if a.once {
+				f.answers = slices.Delete(f.answers, i, i+1)
+			}
 			return a.out, nil
 		}
 	}
@@ -166,6 +177,56 @@ func TestRunTakesATurnAndPullsThroughItsTunnel(t *testing.T) {
 	}
 	if !f.ran(`DOCKER_REGISTRY_BASE=localhost:23456/ .* app stop /home/arduino/ArduinoApps/bt-x-probe`) {
 		t.Error("the app must start and stop through the turn's tunnel port")
+	}
+}
+
+// record is the command that adds one image to the record of what the apps of session bt-x pulled.
+const record = `mkdir -p /home/arduino/\.cache/arduino-test-buddy && printf '%s\\n' influxdb:2\.9-alpine >> /home/arduino/\.cache/arduino-test-buddy/bt-x\.pulled`
+
+func TestRunRecordsTheImagesItsAppPulledForCleanup(t *testing.T) {
+	f := (&fakeRunner{}).
+		first(`docker images`, "ghcr.io/arduino/app-bricks/python-apps-base:0.13.1\ninfluxdb:2.7-alpine\n").
+		on(`docker images`, "ghcr.io/arduino/app-bricks/python-apps-base:0.13.1\ninfluxdb:2.7-alpine\ninfluxdb:2.9-alpine\n"+
+			"localhost:23456/app-bricks/python-apps-base:bt-x\n<none>:<none>\n").
+		on(`app restart .*bt-x-probe`, restartedEvent).
+		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running"))
+	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.PulledImages, []string{"influxdb:2.9-alpine"}) {
+		t.Errorf("only the image the start added counts, not the dev image nor what the board already held: %v", res.PulledImages)
+	}
+	if !f.ran(record) {
+		t.Errorf("the pulled image must be recorded for the session:\n%s", strings.Join(f.scripts, "\n"))
+	}
+}
+
+func TestRunRecordsWhatAFailedStartPulled(t *testing.T) {
+	f := (&fakeRunner{}).
+		first(`docker images`, "").
+		on(`docker images`, "influxdb:2.9-alpine\n").
+		onExit(`app restart`, 1, "panic: failed to perform dynamic provisioning")
+	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Started || !slices.Equal(res.PulledImages, []string{"influxdb:2.9-alpine"}) || !f.ran(record) {
+		t.Errorf("a start that failed after pulling must still leave its record: %+v", res)
+	}
+}
+
+func TestRunRecordsNothingWhenItsAppPulledNothing(t *testing.T) {
+	f := (&fakeRunner{}).
+		on(`docker images`, "influxdb:2.9-alpine\n").
+		on(`app restart .*bt-x-probe`, restartedEvent).
+		on(`app logs .*bt-x-probe`, poll(twoRunsLog, "running"))
+	res, err := tunneled(f, "bt-x").Run(context.Background(), RunRequest{App: "bt-probe"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.PulledImages) != 0 || f.ran(`\.pulled`) {
+		t.Errorf("an image the board already held belongs to nobody: %v", res.PulledImages)
 	}
 }
 

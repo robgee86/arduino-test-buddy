@@ -112,6 +112,21 @@ func newHost(t *testing.T, tags map[string][]string) (*Host, *fakeCommander, *fa
 	return &Host{Dir: t.TempDir(), url: srv.URL, cmd: cmd}, cmd, reg
 }
 
+// pushedAgo writes the file the registry keeps for repo:tag, dated as if its last push was age ago.
+func pushedAgo(t *testing.T, h *Host, repo, tag string, age time.Duration) {
+	link := h.tagFile(repo, tag)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("sha256:x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	when := time.Now().Add(-age)
+	if err := os.Chtimes(link, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // checkout makes a git repository that looks like app-bricks-py, on a branch.
 func checkout(t *testing.T, branch string) string {
 	dir := t.TempDir()
@@ -164,17 +179,7 @@ func TestFullPushBuildsWithTheToolBuilderAndDropsStaleCache(t *testing.T) {
 
 func TestPushDatesTheTagEvenWhenNothingChanged(t *testing.T) {
 	h, _, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
-	link := h.tagFile("app-bricks/tps", "main")
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-30 * 24 * time.Hour)
-	if err := os.WriteFile(link, []byte("sha256:x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(link, old, old); err != nil {
-		t.Fatal(err)
-	}
+	pushedAgo(t, h, "app-bricks/tps", "main", 30*24*time.Hour)
 	if _, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main"), Targets: []string{"tps"}, SkipWheel: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,16 +279,7 @@ func TestStatusListsTagsOldestFirstFromTheFolderEvenWhileDown(t *testing.T) {
 		{"app-bricks/tps", "fresh", 2 * time.Hour},
 		{"app-bricks/python-apps-base", "forgotten", 30 * 24 * time.Hour},
 	} {
-		link := filepath.Join(h.RegistryDir(), "docker/registry/v2/repositories", tc.repo, "_manifests/tags", tc.tag, "current/link")
-		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(link, []byte("sha256:x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Chtimes(link, now.Add(-tc.age), now.Add(-tc.age)); err != nil {
-			t.Fatal(err)
-		}
+		pushedAgo(t, h, tc.repo, tc.tag, tc.age)
 	}
 	st, err := h.Status(context.Background())
 	if err != nil {
@@ -310,6 +306,78 @@ func TestDownWaitsForRunsHoldingTheRegistry(t *testing.T) {
 	release()
 	if _, err := h.lock(true, false); err != nil {
 		t.Errorf("the lock must be free once the run released it: %v", err)
+	}
+}
+
+func TestUpDropsTheTagsNoPushUsedFor3DaysAndKeepsTheOthers(t *testing.T) {
+	h, cmd, reg := newHost(t, map[string][]string{
+		"app-bricks/python-apps-base": {"fresh", "forgotten"},
+		"app-bricks/tps":              {"forgotten"},
+	})
+	pushedAgo(t, h, "app-bricks/python-apps-base", "fresh", 71*time.Hour)
+	pushedAgo(t, h, "app-bricks/python-apps-base", "forgotten", 73*time.Hour)
+	pushedAgo(t, h, "app-bricks/tps", "forgotten", 30*24*time.Hour)
+	st, err := h.Up(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(reg.deleted)
+	if !slices.Equal(reg.deleted, []string{"app-bricks/python-apps-base:forgotten", "app-bricks/tps:forgotten"}) || !slices.Equal(st.Dropped, []string{"forgotten"}) {
+		t.Errorf("up must drop the forgotten tag from every repository and nothing else: deleted %v, reported %v", reg.deleted, st.Dropped)
+	}
+	if !cmd.ran("registry garbage-collect --delete-untagged") || !cmd.ran("docker restart arduino-test-buddy-registry") {
+		t.Errorf("the layers of a dropped tag must be collected:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestUpLeavesTheRegistryAloneWhenNoTagIsStale(t *testing.T) {
+	h, cmd, reg := newHost(t, map[string][]string{"app-bricks/tps": {"fresh"}})
+	pushedAgo(t, h, "app-bricks/tps", "fresh", time.Hour)
+	st, err := h.Up(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.deleted) != 0 || len(st.Dropped) != 0 || cmd.ran("garbage-collect") || cmd.ran("docker restart") {
+		t.Errorf("nothing stale means nothing deleted, collected or restarted: %v %v\n%s", reg.deleted, st.Dropped, strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestDownDropsStaleTagsBeforeItStopsTheRegistry(t *testing.T) {
+	h, cmd, reg := newHost(t, map[string][]string{"app-bricks/tps": {"forgotten"}})
+	pushedAgo(t, h, "app-bricks/tps", "forgotten", 30*24*time.Hour)
+	st, err := h.Down(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	collect := slices.IndexFunc(cmd.commands, func(c string) bool { return strings.Contains(c, "garbage-collect") })
+	stop := slices.IndexFunc(cmd.commands, func(c string) bool { return strings.Contains(c, "docker stop arduino-test-buddy-registry") })
+	if !slices.Equal(reg.deleted, []string{"app-bricks/tps:forgotten"}) || !slices.Equal(st.Dropped, []string{"forgotten"}) || collect < 0 || collect > stop {
+		t.Errorf("down must drop the stale tag while the registry still runs: %v %v\n%s", reg.deleted, st.Dropped, strings.Join(cmd.commands, "\n"))
+	}
+}
+
+func TestFullPushDropsStaleTagsButNeverTheOneItPushed(t *testing.T) {
+	h, _, reg := newHost(t, map[string][]string{"app-bricks/python-apps-base": {"feature-x", "forgotten"}})
+	// The registry rewrites a tag file only when its content changes: an unchanged rebuild leaves it old
+	pushedAgo(t, h, "app-bricks/python-apps-base", "feature-x", 30*24*time.Hour)
+	pushedAgo(t, h, "app-bricks/python-apps-base", "forgotten", 30*24*time.Hour)
+	res, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "feature/x"), SkipWheel: true})
+	if err != nil || res.Error != "" {
+		t.Fatalf("push: %+v %v", res, err)
+	}
+	if !slices.Equal(reg.deleted, []string{"app-bricks/python-apps-base:forgotten"}) {
+		t.Errorf("only the forgotten tag may go: %v", reg.deleted)
+	}
+}
+
+func TestNarrowedPushKeepsStaleTags(t *testing.T) {
+	h, _, reg := newHost(t, map[string][]string{"app-bricks/tps": {"main", "forgotten"}})
+	pushedAgo(t, h, "app-bricks/tps", "forgotten", 30*24*time.Hour)
+	if _, err := h.Push(context.Background(), PushRequest{Source: checkout(t, "main"), Targets: []string{"tps"}, SkipWheel: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.deleted) != 0 {
+		t.Errorf("a narrowed push prunes nothing: %v", reg.deleted)
 	}
 }
 
@@ -373,13 +441,15 @@ func TestPruneNeedsSomethingToPrune(t *testing.T) {
 }
 
 func TestPruneWaitsForRunningPushesAndAPushSkipsPruningDuringOne(t *testing.T) {
-	h, _, _ := newHost(t, map[string][]string{})
+	h, cmd, reg := newHost(t, map[string][]string{"app-bricks/tps": {"forgotten"}})
 	shared, err := h.lock(false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if step := h.pruneUnused(context.Background()); !strings.Contains(step.Name, "skipped") {
-		t.Errorf("pruning during another push must be skipped: %+v", step)
+	pushedAgo(t, h, "app-bricks/tps", "forgotten", 30*24*time.Hour)
+	steps, dropped := h.pruneUnused(context.Background())
+	if len(steps) != 1 || !strings.Contains(steps[0].Name, "skipped") || len(dropped) != 0 || len(reg.deleted) != 0 || cmd.ran("buildx prune") {
+		t.Errorf("pruning during another push must be skipped, cache and tags alike: %+v %v %v", steps, dropped, reg.deleted)
 	}
 	shared.release()
 	if _, err := h.lock(true, false); err != nil {

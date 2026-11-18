@@ -16,7 +16,7 @@ import (
 // testPrefix marks every artifact a test session owns on a shared board.
 const testPrefix = "bt-"
 
-// CleanupRequest scopes a cleanup to one session: its apps, one brick's examples and the session's images.
+// CleanupRequest scopes a cleanup to one session: its apps, one brick's examples, the session's images and the images its apps pulled.
 type CleanupRequest struct {
 	Brick  string   `json:"brick,omitempty" jsonschema:"brick whose example containers and networks are removed, e.g. video_objectdetection"`
 	Apps   []string `json:"apps,omitempty" jsonschema:"extra user apps to destroy besides the session's bt-<tag>-* ones"`
@@ -32,13 +32,17 @@ type Step struct {
 
 // Remaining is what the board still holds after cleanup, so the caller reads one table instead of five commands.
 type Remaining struct {
-	Apps             []string `json:"apps"`
-	Containers       []string `json:"containers"`
-	Networks         []string `json:"networks"`
-	DevImages        []string `json:"dev_images"`
+	Apps       []string `json:"apps"`
+	Containers []string `json:"containers"`
+	Networks   []string `json:"networks"`
+	DevImages  []string `json:"dev_images"`
+	// PulledImages are the images the session's apps pulled by themselves and the board still holds.
+	PulledImages     []string `json:"pulled_images"`
 	Assets           []string `json:"assets"`
 	ExampleLeftovers []string `json:"example_leftovers"`
 	running          map[string]bool
+	// recorded tells that the session still has a record of pulled images, even when none of them is left.
+	recorded bool
 }
 
 // CleanupReport lists what was removed and what remains.
@@ -88,8 +92,11 @@ func (b *Board) cleanup(ctx context.Context, req CleanupRequest) (*CleanupReport
 	if len(state.ExampleLeftovers) > 0 {
 		report.Warnings = append(report.Warnings, "example folders hold data written by runs; they sit among shipped files and are left for you to decide")
 	}
+	if !req.DryRun && len(state.PulledImages) > 0 {
+		report.Warnings = append(report.Warnings, "images the session's apps pulled stay, a container outside the session uses them: "+strings.Join(state.PulledImages, ", "))
+	}
 	if !b.Dev.Enabled() {
-		report.Warnings = append(report.Warnings, "no dev tag given: only bt-released-* apps were in scope, images and assets were not touched")
+		report.Warnings = append(report.Warnings, "no dev tag given: only the bt-released-* apps and the images they pulled were in scope, dev images and assets were not touched")
 	}
 	return report, nil
 }
@@ -125,7 +132,7 @@ func (b *Board) appSteps(req CleanupRequest, state Remaining) []Step {
 	return steps
 }
 
-// dockerSteps removes what the App CLI leaves behind, scoped by construction to the session's names and tag; an example another session kept running stays.
+// dockerSteps removes what the App CLI leaves behind, scoped by construction to the session's names, tag and record of pulled images; an example another session kept running stays.
 func (b *Board) dockerSteps(req CleanupRequest, state Remaining) []Step {
 	var steps []Step
 	owned := b.sessionPattern(req.Brick)
@@ -141,10 +148,18 @@ func (b *Board) dockerSteps(req CleanupRequest, state Remaining) []Step {
 	if names := matching(state.Networks, owned); len(names) > 0 {
 		steps = append(steps, step("remove networks", shell.Join(append([]string{"docker", "network", "rm"}, names...)...)))
 	}
+	if b.Dev.Enabled() && len(state.DevImages) > 0 {
+		steps = append(steps, step("remove the session's images", shell.Join(append([]string{"docker", "rmi"}, state.DevImages...)...)))
+	}
+	// The record goes only once every image it names is gone: one a container outside the session still uses is refused and stays listed.
+	forget := shell.Join("rm", "-f", b.pulledFile()) + "; " + shell.Join("rmdir", StateDir) + " 2>/dev/null || true"
+	switch {
+	case len(state.PulledImages) > 0:
+		steps = append(steps, step("remove the images the session's apps pulled", shell.Join(append([]string{"docker", "rmi"}, state.PulledImages...)...)+" && { "+forget+"; }"))
+	case state.recorded:
+		steps = append(steps, step("forget the images the session's apps pulled, none is left", forget))
+	}
 	if b.Dev.Enabled() {
-		if len(state.DevImages) > 0 {
-			steps = append(steps, step("remove the session's images", shell.Join(append([]string{"docker", "rmi"}, state.DevImages...)...)))
-		}
 		for _, a := range state.Assets {
 			steps = append(steps, step("remove assets folder "+a, shell.Join("rm", "-rf", AssetsDir+"/"+a)))
 		}
@@ -164,10 +179,11 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 		"networks":   "docker network ls --format '{{.Name}}'",
 		"images":     "docker images --format '{{.Repository}}:{{.Tag}}'",
 		"assets":     shell.Join("ls", "-1", AssetsDir),
+		"pulled":     shell.Join("cat", b.pulledFile()),
 		// The assets folders the installed release ships: never a session's, whatever its tag
 		"packaged": "dpkg -L arduino-app-cli 2>/dev/null | grep -o '^" + AssetsDir + "/[^/]*' | sort -u | xargs -rn1 basename",
 	}
-	order := []string{"apps", "containers", "networks", "images", "assets", "packaged"}
+	order := []string{"apps", "containers", "networks", "images", "assets", "pulled", "packaged"}
 	if brick != "" {
 		commands["leftovers"] = shell.Join("find", ExamplesDir+"/bricks/arduino/"+brick, "-mindepth", "2", "-maxdepth", "2", "(", "-name", "data", "-o", "-name", ".cache", ")")
 		order = append(order, "leftovers")
@@ -183,14 +199,22 @@ func (b *Board) inventory(ctx context.Context, brick string) (Remaining, error) 
 		running:          map[string]bool{},
 		Networks:         userNetworks(lines(s["networks"])),
 		DevImages:        []string{},
+		PulledImages:     []string{},
 		Assets:           []string{},
 		ExampleLeftovers: lines(s["leftovers"]),
+		recorded:         len(lines(s["pulled"])) > 0,
 	}
 	// The app folders are the apps: the CLI names apps after them, and lists only those it can parse.
 	state.Apps = append(state.Apps, lines(s["apps"])...)
-	for _, ref := range lines(s["images"]) {
+	images := lines(s["images"])
+	for _, ref := range images {
 		if b.isDevImage(ref) {
 			state.DevImages = append(state.DevImages, ref)
+		}
+	}
+	for _, ref := range lines(s["pulled"]) {
+		if slices.Contains(images, ref) && !slices.Contains(state.PulledImages, ref) {
+			state.PulledImages = append(state.PulledImages, ref)
 		}
 	}
 	packaged := lines(s["packaged"])

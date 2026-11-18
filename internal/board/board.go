@@ -24,6 +24,9 @@ const (
 	AssetsDir   = "/var/lib/arduino-app-cli/assets"
 	ModelsDir   = "/var/lib/arduino-app-cli/models"
 
+	// StateDir holds what a session remembers on the board between calls and reboots: the images its apps pulled.
+	StateDir = "/home/arduino/.cache/arduino-test-buddy"
+
 	// lockFile serializes every App CLI call across processes and hosts, the CLI corrupts the board when run twice.
 	lockFile    = "/tmp/arduino-test-buddy.lock"
 	lockTimeout = "900"
@@ -147,6 +150,11 @@ func (b *Board) sessionPrefix() string {
 		session = strings.ReplaceAll(strings.TrimPrefix(b.Dev.Tag, testPrefix), ".", "-")
 	}
 	return testPrefix + session + "-"
+}
+
+// pulledFile lists the images the session's apps pulled by themselves, one reference per line, for cleanup to remove.
+func (b *Board) pulledFile() string {
+	return StateDir + "/" + strings.TrimSuffix(b.sessionPrefix(), "-") + ".pulled"
 }
 
 // isDevImage matches only this session's tag, under its registry prefix or any tunnel port of the host registry.

@@ -26,7 +26,7 @@ $ arduino-test-buddy --board unoq --tag my-branch run host:./bt-mytest      # sa
 $ arduino-test-buddy --board ventunoq --tag my-branch examples --brick weather_forecast
 $ arduino-test-buddy --board ventunoq --tag my-branch run examples:bricks/arduino/weather_forecast/01_weather_forecast_by_city_example
 $ arduino-test-buddy --board ventunoq --tag my-branch cleanup --brick weather_forecast
-$ arduino-test-buddy --tag my-branch prune                       # when the branch is done: give its registry space back
+$ arduino-test-buddy --tag my-branch prune                       # give its registry space back now; the tool does it 3 days after the last push
 $ arduino-test-buddy down                                        # stop both containers; the data stays for the next up
 ```
 

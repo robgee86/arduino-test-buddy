@@ -130,13 +130,13 @@ func register(s *mcp.Server, d Defaults) {
 		return nil, out, err
 	})
 
-	hostTool(s, "buddy_up", "On the developer machine: power up the tool, creating or starting the registry the boards pull from and the builder, and drop build cache no push used for 3 days. Nothing runs in the background until this is called, and nothing restarts with Docker.", nil,
+	hostTool(s, "buddy_up", "On the developer machine: power up the tool, creating or starting the registry the boards pull from and the builder, and drop the build cache and the tags no push used for 3 days. Nothing runs in the background until this is called, and nothing restarts with Docker.", nil,
 		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Up(ctx) })
-	hostTool(s, "buddy_down", "On the developer machine: power down the tool once running pushes and board runs end, drop build cache no push used for 3 days, then stop the registry and the builder. Their data stays for the next buddy_up. Other sessions using the tool then get an error asking for buddy_up.", nil,
+	hostTool(s, "buddy_down", "On the developer machine: power down the tool once running pushes and board runs end, drop the build cache and the tags no push used for 3 days, then stop the registry and the builder. The rest of their data stays for the next buddy_up. Other sessions using the tool then get an error asking for buddy_up.", nil,
 		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Down(ctx) })
-	hostTool(s, "buddy_status", "On the developer machine: whether the registry and the builder run, the folder holding the registry data with its size, the build cache size, and every tag with its images and last push time, oldest first. Works while the tool is down and starts nothing.", readOnly,
+	hostTool(s, "buddy_status", "On the developer machine: whether the registry and the builder run, the folder holding the registry data with its size, the build cache size, and every tag with its images and last push time, oldest first; a tag not pushed for 3 days is dropped by the next buddy_up, buddy_down or full buddy_push, and a board run does not count as a push. Works while the tool is down and starts nothing.", readOnly,
 		func(ctx context.Context, h *host.Host, _ hostIn) (*host.Status, error) { return h.Status(ctx) })
-	hostTool(s, "buddy_push", "On the developer machine, with the tool up: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops build cache no push used for 3 days.", nil,
+	hostTool(s, "buddy_push", "On the developer machine, with the tool up: build the wheel and every container image of an app-bricks-py checkout and push them into the local registry, which every board pulls from during board_run. Returns the tag to pass to the board tools, the git revision stamped into the images and per-step timings. The first push of a machine builds everything, minutes and several GB of cache; later pushes rebuild only what changed. A full push also drops the build cache and the tags no push used for 3 days.", nil,
 		func(ctx context.Context, h *host.Host, in host.PushRequest) (*host.PushResult, error) {
 			if in.Tag == "" {
 				in.Tag = d.Tag
@@ -166,7 +166,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_run",
-		Description: "Wait for this session's turn on the board, copy the app folder first for host:<folder>, start the app or example with the session's dev images pulled from the host registry through a read-only tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image, build revision and digest, listing the dev images whose digest differs from the host registry's, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
+		Description: "Wait for this session's turn on the board, copy the app folder first for host:<folder>, start the app or example with the session's dev images pulled from the host registry through a read-only tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image, build revision and digest, listing the dev images whose digest differs from the host registry's and the other images the start pulled, which board_cleanup removes, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, *board.RunResult, error) {
 		b, err := d.board(in.Target)
 		if err != nil {
@@ -222,7 +222,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_cleanup",
-		Description: "Wait for this session's turn, then remove only what it owns: its bt-<tag>-* apps and their folders, the containers with their volumes and the networks of those apps and of the brick's examples unless another session kept one running, the images of the tag pulled on the board, and the assets folder of the tag, last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
+		Description: "Wait for this session's turn, then remove only what it owns: its bt-<tag>-* apps and their folders, the containers with their volumes and the networks of those apps and of the brick's examples unless another session kept one running, the images of the tag pulled on the board, the other images its apps pulled unless a container outside the session uses them, and the assets folder of the tag, last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
 		Annotations: destructive,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cleanupIn) (*mcp.CallToolResult, *board.CleanupReport, error) {
 		b, err := d.board(in.Target)

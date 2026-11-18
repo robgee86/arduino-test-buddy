@@ -72,12 +72,17 @@ func (h *Host) Prune(ctx context.Context, req PruneRequest) (*PruneResult, error
 	return res, nil
 }
 
-// pruneTag deletes the tag from every repository, then collects the layers nothing references any more.
+// pruneTag deletes the tag from every repository and frees its layers.
 func (h *Host) pruneTag(ctx context.Context, tag string) ([]Step, error) {
 	refs, err := h.Images(ctx, tag)
 	if err != nil {
 		return nil, err
 	}
+	return h.deleteTags(ctx, refs)
+}
+
+// deleteTags deletes each repository:tag, then collects the layers nothing references any more.
+func (h *Host) deleteTags(ctx context.Context, refs []string) ([]Step, error) {
 	var steps []Step
 	for _, ref := range refs {
 		step := Step{Name: "delete " + ref}
@@ -90,10 +95,8 @@ func (h *Host) pruneTag(ctx context.Context, tag string) ([]Step, error) {
 		"registry", "garbage-collect", "--delete-untagged", "/etc/distribution/config.yml")
 	// The registry caches blob descriptors in memory and would keep claiming the deleted layers exist, so later pushes would skip them.
 	restart, _ := h.step(ctx, "restart registry to drop its cache", "", nil, "docker", "restart", RegistryName)
-	if err := h.waitReady(ctx); err != nil {
-		return nil, err
-	}
-	return append(steps, gc, restart), nil
+	steps = append(steps, gc, restart)
+	return steps, h.waitReady(ctx)
 }
 
 // removeAll removes the registry container and the builder; Prune removes the folder after releasing its lock.

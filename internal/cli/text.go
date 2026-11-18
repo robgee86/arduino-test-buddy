@@ -50,6 +50,9 @@ func text(v any) string {
 		if r.Trimmed != "" && r.Trimmed != "0B" {
 			fmt.Fprintf(&sb, "trimmed build cache no push used for 3 days: %s\n", r.Trimmed)
 		}
+		if len(r.Dropped) > 0 {
+			fmt.Fprintf(&sb, "dropped tags no push used for 3 days: %s\n", strings.Join(r.Dropped, ", "))
+		}
 		if len(r.Tags) == 0 {
 			sb.WriteString("tags: none\n")
 		}
@@ -57,7 +60,7 @@ func text(v any) string {
 		for _, t := range r.Tags {
 			stale := ""
 			if t.Stale(now) {
-				stale = "  stale: prune --tag " + t.Name
+				stale = "  stale: dropped by the next up, down or full push"
 			}
 			fmt.Fprintf(&sb, "tag %s  pushed %s (%s ago)  images: %d%s\n", t.Name, t.Pushed.Format("2006-01-02 15:04"), age(now.Sub(t.Pushed)), len(t.Images), stale)
 		}
@@ -106,6 +109,9 @@ func text(v any) string {
 				fmt.Fprintf(&sb, "  %s  %s  %s  %s\n", c.Name, c.Image, orDash(c.Revision), orDash(c.Digest))
 			}
 		}
+		if len(r.PulledImages) > 0 {
+			fmt.Fprintf(&sb, "pulled by the app, removed by cleanup: %s\n", strings.Join(r.PulledImages, ", "))
+		}
 		if len(r.DifferingImages) > 0 {
 			fmt.Fprintf(&sb, "WARNING: images on the board differ from the host registry, swapped under the tag or not pulled again: %s\n", strings.Join(r.DifferingImages, ", "))
 		}
@@ -124,8 +130,8 @@ func text(v any) string {
 			sb.WriteString("nothing to remove\n")
 		}
 		rem := r.Remaining
-		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | assets %s\n",
-			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.Assets))
+		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | pulled images %s | assets %s\n",
+			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.PulledImages), orNone(rem.Assets))
 		if len(rem.ExampleLeftovers) > 0 {
 			fmt.Fprintf(&sb, "example leftovers: %s\n", strings.Join(rem.ExampleLeftovers, ", "))
 		}
