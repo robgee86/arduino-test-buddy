@@ -285,6 +285,20 @@ func TestNarrowedPushKeepsTheCache(t *testing.T) {
 	}
 }
 
+func TestPushRefusesATargetThatIsNotABakeTargetName(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
+	source := checkout(t, "main")
+	for _, target := range []string{"--metadata-file=/tmp/x", "-f", "", "a b", "https://example.com/bake.git"} {
+		_, err := h.Push(context.Background(), PushRequest{Source: source, Targets: []string{"tps", target}})
+		if err == nil || !strings.Contains(err.Error(), "bake target") {
+			t.Errorf("%q must be refused as a bake target: %v", target, err)
+		}
+	}
+	if cmd.ran("task ") {
+		t.Errorf("nothing may build with a refused target:\n%s", strings.Join(cmd.commands, "\n"))
+	}
+}
+
 func TestNothingStartsByItselfWhileDown(t *testing.T) {
 	h, cmd, _ := newHost(t, map[string][]string{})
 	cmd.down()
