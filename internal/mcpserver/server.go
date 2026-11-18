@@ -118,7 +118,7 @@ func Serve(ctx context.Context, defaults Defaults) error {
 	return serve(ctx, server, os.Stdin, os.Stdout, stopGrace)
 }
 
-// serve runs the server over in and out until the session ends: in ends or ctx does. The running calls are then cancelled and get grace to return.
+// serve runs the server over in and out until the session ends: ctx ends or the client leaves, which shows as in ending or out failing. The running calls are then cancelled and get grace to return.
 func serve(ctx context.Context, server *mcp.Server, in io.Reader, out io.Writer, grace time.Duration) error {
 	ctx, end := context.WithCancel(ctx)
 	defer end()
@@ -132,7 +132,7 @@ func serve(ctx context.Context, server *mcp.Server, in io.Reader, out io.Writer,
 
 	ran := make(chan error, 1)
 	go func() {
-		ran <- server.Run(context.WithoutCancel(ctx), &mcp.IOTransport{Reader: input, Writer: nopCloser{out}})
+		ran <- server.Run(context.WithoutCancel(ctx), &mcp.IOTransport{Reader: input, Writer: clientOutput{out, end}})
 	}()
 	var err error
 	select {
@@ -151,10 +151,21 @@ func serve(ctx context.Context, server *mcp.Server, in io.Reader, out io.Writer,
 	return err
 }
 
-// nopCloser keeps the SDK from closing stdout, which the process owns.
-type nopCloser struct{ io.Writer }
+// clientOutput writes to the client and ends the session when the client is gone. It leaves stdout open, which the process owns.
+type clientOutput struct {
+	io.Writer
+	gone func()
+}
 
-func (nopCloser) Close() error { return nil }
+func (o clientOutput) Write(p []byte) (int, error) {
+	n, err := o.Writer.Write(p)
+	if err != nil {
+		o.gone()
+	}
+	return n, err
+}
+
+func (clientOutput) Close() error { return nil }
 
 func register(s *mcp.Server, d Defaults) {
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
