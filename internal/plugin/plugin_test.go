@@ -34,16 +34,10 @@ func TestThePluginCarriesTheVersionOfTheRelease(t *testing.T) {
 	}
 }
 
-func TestTheMarketplaceOffersThePluginUnderItsOwnName(t *testing.T) {
-	var manifest struct{ Name string }
-	var marketplace struct {
-		Plugins []struct{ Name, Source string }
-	}
-	read(t, ".claude-plugin/plugin.json", &manifest)
-	read(t, ".claude-plugin/marketplace.json", &marketplace)
-	// The repository root is the plugin, so the skill sits at the top level, where any agent can take it from
-	if len(marketplace.Plugins) != 1 || marketplace.Plugins[0].Name != manifest.Name || marketplace.Plugins[0].Source != "./" {
-		t.Errorf("the marketplace must offer %q from the repository root: %+v", manifest.Name, marketplace.Plugins)
+func TestTheRepositoryIsAPluginAndNotACatalog(t *testing.T) {
+	// The catalog lives in its own repository and names this one as the source: a second catalog here would offer the same plugin twice
+	if _, err := os.Stat(filepath.Join(root, ".claude-plugin", "marketplace.json")); err == nil {
+		t.Error("the catalog belongs to the arduino-claude-plugins repository, not to this one")
 	}
 }
 

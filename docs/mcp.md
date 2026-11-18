@@ -4,11 +4,11 @@
 
 ## Claude Code plugin
 
-This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) starts the installed binary as the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for.
+This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) starts the installed binary as the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for. The repository holds no catalog of its own: the [arduino-claude-plugins](https://github.com/robgee86/arduino-claude-plugins) catalog lists it, with this repository as the plugin's source.
 
 ```console
-$ claude plugin marketplace add robgee86/arduino-test-buddy
-$ claude plugin install arduino-test-buddy@arduino-test-buddy
+$ claude plugin marketplace add robgee86/arduino-claude-plugins
+$ claude plugin install arduino-test-buddy@arduino-claude-plugins
 ```
 
 The binary must be on the `PATH`, the plugin does not install it. The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill of each new release. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand with the same command takes precedence and the plugin's copy is not started, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
