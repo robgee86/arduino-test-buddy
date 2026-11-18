@@ -10,8 +10,8 @@ Defaults for the board, tag, registry and turn wait can be baked into the regist
 
 | Tool | Operation | Notes |
 |---|---|---|
-| `buddy_up` | up | starts the registry and the builder |
-| `buddy_down` | down | waits for running pushes and runs, then stops both |
+| `buddy_up` | up | starts the registry and the builder, drops cache and tags not pushed for 3 days |
+| `buddy_down` | down | waits for running pushes and runs, drops cache and tags not pushed for 3 days, then stops both |
 | `buddy_status` | status | read-only, starts nothing |
 | `buddy_push` | push | needs the tool up; minutes on the first build of a machine |
 | `buddy_prune` | prune | destructive, scoped to the tool's registry and builder |

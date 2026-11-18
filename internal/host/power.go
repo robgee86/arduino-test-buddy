@@ -39,7 +39,9 @@ type Status struct {
 	Cache    string `json:"build_cache,omitempty"`
 	// Trimmed is what up or down gave back by dropping build cache no push used for 3 days.
 	Trimmed string `json:"cache_trimmed,omitempty"`
-	Tags    []Tag  `json:"tags"`
+	// Dropped are the tags up or down deleted because no push touched them for 3 days.
+	Dropped []string `json:"tags_dropped,omitempty"`
+	Tags    []Tag    `json:"tags"`
 }
 
 // Tag is one tag of the registry, oldest push first, so a forgotten branch stands out.
@@ -49,13 +51,13 @@ type Tag struct {
 	Images []string  `json:"images"`
 }
 
-// Stale reports whether no push touched the tag for longer than the build cache keeps its layers.
-func (t Tag) Stale(now time.Time) bool { return now.Sub(t.Pushed) > cacheKeep }
+// Stale reports whether no push touched the tag for longer than the tool keeps it: the next up, down or full push drops it.
+func (t Tag) Stale(now time.Time) bool { return now.Sub(t.Pushed) > keep }
 
 // Up reports whether both containers run.
 func (s *Status) Up() bool { return s.Registry == Running && s.Builder == Running }
 
-// Up creates or starts the registry and the builder. Neither restarts with Docker, so nothing runs until the next up.
+// Up creates or starts the registry and the builder, then drops the cache and the tags no push used for 3 days. Neither restarts with Docker, so nothing runs until the next up.
 func (h *Host) Up(ctx context.Context) (*Status, error) {
 	registry, builder := h.state(ctx)
 	switch registry {
@@ -94,15 +96,15 @@ func (h *Host) Up(ctx context.Context) (*Status, error) {
 	if err := h.waitReady(ctx); err != nil {
 		return nil, err
 	}
-	trim := h.pruneUnused(ctx)
+	steps, dropped := h.pruneUnused(ctx)
 	st, err := h.Status(ctx)
 	if err == nil {
-		st.Trimmed = field(trim.Output, "Total:")
+		st.Trimmed, st.Dropped = field(steps[0].Output, "Total:"), dropped
 	}
 	return st, err
 }
 
-// Down waits for running pushes, runs and prunes to end, then stops both containers; their data stays for the next up.
+// Down waits for running pushes, runs and prunes to end, drops the cache and the tags no push used for 3 days, then stops both containers; the rest of their data stays for the next up.
 func (h *Host) Down(ctx context.Context) (*Status, error) {
 	exclusive, err := h.lock(true, true)
 	if err != nil {
@@ -112,10 +114,12 @@ func (h *Host) Down(ctx context.Context) (*Status, error) {
 	registry, builder := h.state(ctx)
 	trimmed := ""
 	if builder == Running {
-		// The end of a working session is a cleanup point too, so a cache nobody pushes to again doesn't stay forever.
+		// The end of a working session is a cleanup point too, so a cache or a tag nobody pushes to again doesn't stay forever.
 		trimmed = field(h.trimCache(ctx).Output, "Total:")
 	}
+	var dropped []string
 	if registry == Running {
+		dropped, _ = h.dropStaleTags(ctx)
 		if err := h.do(ctx, "stop the registry", "docker", "stop", RegistryName); err != nil {
 			return nil, err
 		}
@@ -127,7 +131,7 @@ func (h *Host) Down(ctx context.Context) (*Status, error) {
 	}
 	st, err := h.Status(ctx)
 	if err == nil {
-		st.Trimmed = trimmed
+		st.Trimmed, st.Dropped = trimmed, dropped
 	}
 	return st, err
 }

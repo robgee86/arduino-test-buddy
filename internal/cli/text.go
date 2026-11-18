@@ -50,6 +50,9 @@ func text(v any) string {
 		if r.Trimmed != "" && r.Trimmed != "0B" {
 			fmt.Fprintf(&sb, "trimmed build cache no push used for 3 days: %s\n", r.Trimmed)
 		}
+		if len(r.Dropped) > 0 {
+			fmt.Fprintf(&sb, "dropped tags no push used for 3 days: %s\n", strings.Join(r.Dropped, ", "))
+		}
 		if len(r.Tags) == 0 {
 			sb.WriteString("tags: none\n")
 		}
@@ -57,7 +60,7 @@ func text(v any) string {
 		for _, t := range r.Tags {
 			stale := ""
 			if t.Stale(now) {
-				stale = "  stale: prune --tag " + t.Name
+				stale = "  stale: dropped by the next up, down or full push"
 			}
 			fmt.Fprintf(&sb, "tag %s  pushed %s (%s ago)  images: %d%s\n", t.Name, t.Pushed.Format("2006-01-02 15:04"), age(now.Sub(t.Pushed)), len(t.Images), stale)
 		}

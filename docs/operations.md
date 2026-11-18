@@ -14,7 +14,7 @@ The operations split by where they run. `up`, `down`, `status`, `push` and `prun
 
 Builds on the developer machine from the checkout it is given (`--source`, default the current directory) through the repository's own `task build:bricks` and `task build:containers PUSH=1`, on the tool's dedicated builder, which pushes straight into the registry. Nothing lands in Docker's own image store. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
 
-By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and at the end the build cache no push used for 3 days is dropped. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
+By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and at the end the build cache and the tags no push used for 3 days are dropped. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
 
 The result lists every image the registry holds under the tag after the push, so a narrowed push also shows what an earlier full push of the tag left. Every image carries the commit it was built from in its `org.opencontainers.image.revision` label, with a `-dirty` suffix for an unclean tree. The tag defaults to the branch name made safe for an image tag; a detached HEAD uses `bt-<worktree folder>`, so parallel worktrees at the same commit never share a tag.
 
@@ -22,15 +22,17 @@ The result lists every image the registry holds under the tag after the push, so
 
 The tool runs two containers on the developer machine: the registry the boards pull from and the builder, which buildx runs in its own container. Nothing runs until `up`, and neither container restarts with Docker or after a reboot.
 
-- `up` creates what is missing and starts what is stopped, waits until the registry answers, then drops build cache no push used for 3 days.
-- `down` waits for running pushes, prunes and board runs to end, drops build cache no push used for 3 days, then stops both. Their data stays for the next `up`.
-- `status` reports both states, the registry folder and its size, the build cache size, and every tag with its images and last push time, oldest first, marking tags not pushed for 3 days as stale. It reads the tags from the registry folder, so it works while the tool is down, and it starts nothing.
+- `up` creates what is missing and starts what is stopped, waits until the registry answers, then drops the build cache and the tags no push used for 3 days.
+- `down` waits for running pushes, prunes and board runs to end, drops the build cache and the tags no push used for 3 days, then stops both. The rest of their data stays for the next `up`.
+- `status` reports both states, the registry folder and its size, the build cache size, and every tag with its images and last push time, oldest first, marking tags not pushed for 3 days as stale: the next `up`, `down` or full `push` drops them. It reads the tags from the registry folder, so it works while the tool is down, and it starts nothing.
+
+A tag lives 3 days from its last push. Only a push dates it: a board run does not, so a tag still in use after 3 days needs a new push, which rebuilds little while its cache is warm. `up` and `down` report the tags they dropped.
 
 `push`, `prune --tag` and `prune --cache` need the tool up, and so does a `run` that pulls from the host registry; while it is down they fail at once and ask for `up`, before taking a turn on any board. See [disk.md](disk.md).
 
 ## prune
 
-Gives back disk on the developer machine, after running pushes and board runs end. `--tag` deletes the tag's images and frees the layers no other tag uses; `--cache` empties the build cache; `--all` removes the registry container, its folder and the builder with its cache. It touches nothing outside the tool's registry, folder and builder.
+Gives back disk on the developer machine, after running pushes and board runs end. `--tag` deletes the tag's images and frees the layers no other tag uses, ahead of the 3 days after which the tool drops it by itself; `--cache` empties the build cache; `--all` removes the registry container, its folder and the builder with its cache. It touches nothing outside the tool's registry, folder and builder.
 
 ## preflight
 
@@ -60,4 +62,4 @@ A session's own test app is restarted rather than started, so one left running b
 
 Waits for the session's turn, then removes in this order and only this: the session's `bt-<tag>-*` apps and their folders through `app destroy`, found by folder since the CLI names apps after their folders; the containers with their volumes and the networks of those apps and of the named brick's examples, except an example another session kept running, which is reported; the images of the tag pulled on the board, under any tunnel port; the assets folder of the tag, last.
 
-Data written inside shipped example folders is reported, never deleted, since it sits among shipped files. The result lists every step with its output and ends with what the board still holds. `--dry-run` prints the plan without running it. The host registry is untouched: `prune` handles it once the branch is done.
+Data written inside shipped example folders is reported, never deleted, since it sits among shipped files. The result lists every step with its output and ends with what the board still holds. `--dry-run` prints the plan without running it. The host registry is untouched: one tag serves every board, so `prune --tag` handles it once the last board is clean, and the tool drops it by itself 3 days after its last push.
