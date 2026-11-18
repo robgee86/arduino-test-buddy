@@ -1,0 +1,24 @@
+# Per-developer board coordinates. Copy to ~/.config/arduino-test-buddy/boards.yaml and edit.
+# `board` references an id from boards/*.yaml. One entry per reachable device.
+boards:
+  - board: ventuno-q
+    ssh:
+      alias: ventunoq          # alias defined in your ~/.ssh/config
+    # Peripherals the developer can plug on request (kinds as in the board's features)
+    peripherals:
+      - usb-camera  # with a built-in microphone
+      - usb-microphone
+      - usb-speaker
+
+  - board: uno-q
+    ssh:
+      alias: unoq
+    # RAM variant of this unit, when it is not the model's default
+    # ram: 2G
+
+  # Explicit coordinates instead of an alias:
+  # - board: uno-q
+  #   ssh:
+  #     host: 192.168.1.42
+  #     user: arduino
+  #     key: ~/.ssh/id_ed25519  # or password: "..." (requires sshpass; prefer keys)

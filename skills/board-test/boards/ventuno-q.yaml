@@ -1,0 +1,61 @@
+id: ventuno-q
+name: VENTUNO Q
+scouted: 2026-08-26
+
+# Bricks with a brick_compose.ventunoq.yaml use it here (NPU/QNN runner variants).
+platform_key: ventunoq
+
+system:
+  os: Ubuntu 24.04.4 LTS (noble)
+  kernel: 6.8.0-1080-qcom
+  arch: aarch64
+
+compute:
+  mcu:
+    present: true
+    model: ""  # not verified yet; reachable via arduino-app-cli monitor / sketch upload
+  npu:
+    present: true
+    type: Qualcomm Hexagon (FastRPC)
+    devices:
+      - /dev/fastrpc-cdsp
+      - /dev/dma_heap/system
+
+features:
+  built_in:
+    - id: npu-inference
+      description: NPU-accelerated model runners (ei-qnn, aihub, llamacpp-npu) via FastRPC
+      check: test -e /dev/fastrpc-cdsp
+  optional:
+    - id: mipi-csi-camera
+      description: Built-in MIPI-CSI cameras, served through the Qualcomm camera stack
+      enable_via: install the qcom-camera-server package (apt)
+      check: dpkg -s qcom-camera-server >/dev/null 2>&1
+    # USB peripherals: index 0 is the first plugged device of its kind, USB ones first. Built-in audio
+    # (card 0) only counts with a media carrier, so Microphone(0)/Speaker(0) pick USB devices only.
+    # Audio checks mirror the PipeWire discovery of the peripherals and run from the host as
+    # `ssh <board> python3 - <class> < references/pw-usb-audio.py`.
+    - id: usb-camera
+      description: USB (V4L) camera, picked by Camera(0) before CSI ones; a webcam often adds a USB microphone too
+      enable_via: ask the user to plug one
+      check: ls /dev/v4l/by-id/ 2>/dev/null | grep -q .
+    - id: usb-microphone
+      description: USB microphone, standalone or built into a webcam
+      enable_via: ask the user to plug one
+      check: python3 - Audio/Source < references/pw-usb-audio.py
+    - id: usb-speaker
+      description: USB speaker
+      enable_via: ask the user to plug one
+      check: python3 - Audio/Sink < references/pw-usb-audio.py
+
+storage:
+  root_total: 55G
+  min_free_for_testing: 8G
+
+tooling:
+  arduino-app-cli: true   # 0.13.0 at scout time, 0.14.0-rc.5 on 2026-10-05
+  arduino-linux-config: false
+
+notes: >
+  Comfortable disk headroom; the sensible target for NPU runner tests and,
+  when qcom-camera-server is installed, for MIPI-CSI camera tests.

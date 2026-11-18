@@ -5,6 +5,7 @@ $ task check            # gofmt, vet, tests
 $ task build            # dist/arduino-test-buddy
 $ task install          # into GOPATH/bin, with asdf run `asdf reshim golang` afterwards
 $ task mcp:add          # register the installed binary in Claude Code
+$ task plugin:check     # validate the Claude Code plugin and its marketplace entry, needs the claude CLI
 $ task release:snapshot # every platform locally, needs goreleaser
 ```
 
@@ -18,11 +19,14 @@ The binaries are built for macOS and Linux only: the cache lock relies on Unix f
 - `internal/host` holds the developer machine side: the registry, the builder, push and prune, over a `Commander` interface for the child processes.
 - `internal/cli` and `internal/mcpserver` are thin entry points over those methods; the CLI renders text or JSON, the MCP server registers each as a tool.
 - `internal/shell` quotes command lines so no caller ever escapes by hand.
+- `skills/board-test` is the skill, with its references and board descriptors, at the top level since no agent owns it. `.claude-plugin` makes the repository a Claude Code plugin around it: `plugin.json` is the manifest, with the MCP server entry, and `marketplace.json` offers the plugin, so the repository is its own marketplace. Claude Code copies the whole repository on install. `claude --plugin-dir .` loads the working copy for one session.
 
 ## CI and releases
 
 `check.yml` runs `task check` on every push to `main` and on pull requests.
 
 `release.yml` runs on every push to `main`. [release-please](https://github.com/googleapis/release-please) reads the Conventional Commits since the last release and keeps a release pull request up to date with the next version and the changelog; the first release is `0.1.0`, and while in the 0.x range `feat` commits bump the minor version, `fix` commits the patch, and a breaking change bumps the minor version too, so the 1.0.0 release happens only when you ask for it with a `Release-As: 1.0.0` footer. Merging that pull request creates the tag and the GitHub release, and the same workflow then runs goreleaser on the tag to build the binaries for macOS and Linux and attach the archives and checksums. Both steps live in one workflow because a tag created with the workflow token triggers no other workflow.
+
+The release pull request also writes the new version into `.claude-plugin/plugin.json`, which is what tells Claude Code that the plugin has an update; a test fails when the two versions differ.
 
 Commit messages therefore decide the version: `feat:` for a new capability, `fix:` for a correction, `feat!:` or a `BREAKING CHANGE:` footer for an incompatible change, anything else leaves the version alone.

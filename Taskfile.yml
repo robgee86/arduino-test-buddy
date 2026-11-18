@@ -54,3 +54,9 @@ tasks:
     desc: Register the installed binary as a user-scoped MCP server in Claude Code
     cmds:
       - claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp
+
+  plugin:check:
+    desc: Validate the Claude Code plugin and its marketplace entry, needs the claude CLI
+    cmds:
+      - claude plugin validate .claude-plugin/plugin.json --strict
+      - claude plugin validate .claude-plugin/marketplace.json --strict

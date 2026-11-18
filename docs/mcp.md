@@ -1,10 +1,30 @@
 # MCP server
 
-`arduino-test-buddy mcp` serves the operations as tools over stdio. Register it once at user scope so every project can use it:
+`arduino-test-buddy mcp` serves the operations as tools over stdio. The tools say what each call does; the `board-test` skill says how a board test session goes: the hard rules, the workflow from board choice to cleanup, the evidence a verdict needs, and the descriptors of the board models. An agent needs both.
+
+## Claude Code plugin
+
+This repository is itself a Claude Code plugin that bundles the two: its manifest in [.claude-plugin/](../.claude-plugin) starts the installed binary as the MCP server, and Claude Code loads the skill in [skills/board-test](../skills/board-test) only when a board test is asked for.
 
 ```console
-$ claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp
+$ claude plugin marketplace add robgee86/arduino-test-buddy
+$ claude plugin install arduino-test-buddy@arduino-test-buddy
 ```
+
+The binary must be on the `PATH`, the plugin does not install it. On Windows the binary runs in WSL only, so Claude Code must run inside WSL too, next to it. The plugin carries the version of the release it was cut from, so `claude plugin update` brings the skill of each new release. Claude Code lists the plugin's server as `plugin:arduino-test-buddy:buddy` and names its tools `mcp__plugin_arduino-test-buddy_buddy__<tool>`: permission rules take that name. The server is called `buddy` there because a tool name holds 64 characters at most, prefix included. A server registered by hand with the same command takes precedence and the plugin's copy is not started, so keep one of the two: `claude mcp remove arduino-test-buddy --scope user` drops the one added by hand.
+
+## By hand
+
+Without the plugin, or with another agent, install the two parts yourself.
+
+- The server: `claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp` for Claude Code, or the same command registered as a stdio server in any MCP client.
+- The skill: copy [skills/board-test](../skills/board-test) into the agent's skills folder, `~/.claude/skills/` for Claude Code. It is a plain folder, a `SKILL.md` with the files it links. An agent without skills can be given the `SKILL.md` as instructions.
+
+## Boards of the developer
+
+The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../skills/board-test/boards.example.yaml) there and edit it. It lives outside the repository, whose installed copy is replaced on every update.
+
+## Tools
 
 Defaults for the board, tag, registry and turn wait can be baked into the registration (`-- arduino-test-buddy --board ventunoq mcp`); the board tools also accept `board`, `tag` and `registry` as optional fields, and `buddy_push` and `buddy_prune` take `tag`. The `buddy_` tools act on the developer machine, the `board_` tools on a board.
 

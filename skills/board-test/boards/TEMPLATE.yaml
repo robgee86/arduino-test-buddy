@@ -1,0 +1,54 @@
+# Board model descriptor template.
+# Copy to <board-id>.yaml to support a new board model. Record only verified
+# facts (scout the board, read its docs) and stamp the `scouted` date.
+# SSH coordinates never go here: they belong to each developer's ~/.config/arduino-test-buddy/boards.yaml.
+
+id: my-board            # kebab-case, unique; referenced by the developer's boards.yaml
+name: MY BOARD          # marketing name
+scouted: YYYY-MM-DD     # when the facts below were last verified on a real unit
+
+# Suffix selecting brick_compose.<platform_key>.yaml in src/arduino/app_bricks/*.
+# Omit if the board uses the default brick_compose.yaml.
+platform_key: myboard
+
+system:
+  os: ""                # e.g. "Ubuntu 24.04 LTS (noble)"
+  kernel: ""            # from uname -r
+  arch: aarch64
+
+compute:
+  # Omit if the model has one RAM size. A unit states its own `ram` in the developer's boards.yaml
+  ram:
+    variants: []        # e.g. [2G, 4G]
+    default: ""         # the variant assumed for a unit that states none
+  mcu:
+    present: false
+    model: ""           # if known
+  npu:
+    present: false
+    type: ""            # e.g. "Qualcomm Hexagon (FastRPC)"
+    devices: []         # device nodes containers need, e.g. /dev/fastrpc-cdsp
+
+# Each feature: id (stable name tests can require), description,
+# `check` (command run on the board; exit 0 = available) and, for optional
+# features, `enable_via` (how a user enables it — never enable without asking).
+features:
+  built_in: []
+  #  - id: some-feature
+  #    description: ""
+  #    check: ""
+  optional: []
+  #  - id: mipi-csi-camera
+  #    description: ""
+  #    enable_via: ""
+  #    check: ""
+
+storage:
+  root_total: ""            # from df -h /
+  min_free_for_testing: ""  # abort/ask below this before deploying images
+
+tooling:
+  arduino-app-cli: true
+  arduino-linux-config: false
+
+notes: ""

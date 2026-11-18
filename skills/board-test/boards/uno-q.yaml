@@ -1,0 +1,51 @@
+id: uno-q
+name: UNO Q
+scouted: 2026-08-26
+
+# Bricks have no unoq-specific compose today (default brick_compose.yaml, CPU
+# runners), but services do: see service_compose.unoq.yaml under app_services.
+platform_key: unoq
+
+system:
+  os: Debian GNU/Linux 13 (trixie)
+  kernel: 7.0.0-g122c2c22d838
+  arch: aarch64
+
+compute:
+  # A unit that is not the default variant states its own `ram` in the developer's boards.yaml
+  ram:
+    variants: [2G, 4G]
+    default: 4G
+  mcu:
+    present: true
+    model: STM32U585
+  npu:
+    present: false
+
+features:
+  built_in: []
+  optional:
+    # Hat/carrier-provided features, configured with the arduino-linux-config CLI
+    # ("carrier" command). Never reconfigure a carrier without asking.
+    - id: audio-jack
+      description: Built-in audio (jack) via hat
+      enable_via: arduino-linux-config carrier (see arduino-linux-config carrier --help)
+      check: arduino-linux-config carrier list --format json
+    - id: mipi-csi-camera
+      description: MIPI-CSI camera via hat
+      enable_via: arduino-linux-config carrier (see arduino-linux-config carrier --help)
+      check: arduino-linux-config carrier list --format json
+
+storage:
+  root_total: 9.8G
+  min_free_for_testing: 2G
+
+tooling:
+  arduino-app-cli: true        # 0.13.0-rc.2 at scout time
+  arduino-linux-config: true
+
+notes: >
+  Disk is tight (60% used at scout time): always preflight df and transfer only
+  the images the test needs. Never build on-board here: the build's peak
+  footprint (base image + build cache + intermediate layers) exceeds what the
+  board can spare, even when the final image would fit.
