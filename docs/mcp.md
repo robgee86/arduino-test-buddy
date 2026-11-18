@@ -21,7 +21,7 @@ Defaults for the board, tag, registry and turn wait can be baked into the regist
 | `board_logs` | logs | read-only |
 | `board_exec` | exec | shell inside a container |
 | `board_shell` | shell | shell on the board's host, not for `arduino-app-cli` |
-| `board_cleanup` | cleanup | destructive, scoped to the session; `dry_run` first |
+| `board_cleanup` | cleanup | destructive, scoped to the session, the images its apps pulled included; `dry_run` first |
 
 Results are structured content, the same JSON `--format json` prints. Errors of the operation itself, such as a failed start, come back inside the result so the agent can read them; only unreachable boards and malformed input are tool errors.
 

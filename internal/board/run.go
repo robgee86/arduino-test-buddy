@@ -68,6 +68,8 @@ type RunResult struct {
 	ElapsedS         float64     `json:"elapsed_seconds"`
 	Log              string      `json:"log"`
 	Containers       []Container `json:"containers"`
+	// PulledImages are the images this start added to the board besides the session's dev images, such as a database a brick runs; cleanup removes them.
+	PulledImages []string `json:"pulled_images,omitempty"`
 	// DifferingImages are the dev images whose digest on the board is not the one the host registry serves for the tag: swapped under the tag, or not pulled again.
 	DifferingImages []string `json:"differing_images,omitempty"`
 	Stopped         bool     `json:"stopped"`
@@ -139,9 +141,17 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 	if IsExample(req.App) {
 		verb = "start"
 	}
+	before, err := b.images(ctx)
+	if err != nil {
+		return err
+	}
 	begin := time.Now()
 	start, err := b.run(ctx, appCLI(dev, "app", verb, appRef(req.App), "--format", "json-lines"))
 	if err != nil {
+		return err
+	}
+	// A failed start may have pulled too, so the record comes before the verdict.
+	if res.PulledImages, err = b.recordPulled(ctx, before); err != nil {
 		return err
 	}
 	res.StartLog, res.Started = parseStartEvent(start)
@@ -203,6 +213,40 @@ func (b *Board) run1(ctx context.Context, dev Dev, req RunRequest, marker *regex
 		res.Stopped = stop.OK()
 	}
 	return nil
+}
+
+// images lists the tagged images the board's Docker holds.
+func (b *Board) images(ctx context.Context) ([]string, error) {
+	out, err := b.run(ctx, "docker images --format '{{.Repository}}:{{.Tag}}'")
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(lines(out.Stdout), func(ref string) bool { return strings.Contains(ref, "<none>") }), nil
+}
+
+// recordPulled appends the images the start added to the board, the session's dev images aside, to the session's record. Sessions take turns, so an image that appeared during the start is one this app asked for.
+func (b *Board) recordPulled(ctx context.Context, before []string) ([]string, error) {
+	after, err := b.images(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pulled []string
+	for _, ref := range after {
+		if !slices.Contains(before, ref) && !b.isDevImage(ref) {
+			pulled = append(pulled, ref)
+		}
+	}
+	if len(pulled) == 0 {
+		return nil, nil
+	}
+	out, err := b.run(ctx, shell.Join("mkdir", "-p", StateDir)+" && "+shell.Join(append([]string{"printf", `%s\n`}, pulled...)...)+" >> "+shell.Quote(b.pulledFile()))
+	if err != nil {
+		return nil, err
+	}
+	if !out.OK() {
+		return nil, fmt.Errorf("could not record the images the app pulled, cleanup would leave them: %s", strings.TrimSpace(out.Stderr))
+	}
+	return pulled, nil
 }
 
 // verifyImages compares each dev image the app runs with the host registry: the digests the board holds for it must include the one the registry serves for the tag. It records that digest on the containers and returns the images that differ, swapped under the tag or not pulled again.

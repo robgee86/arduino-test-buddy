@@ -109,6 +109,9 @@ func text(v any) string {
 				fmt.Fprintf(&sb, "  %s  %s  %s  %s\n", c.Name, c.Image, orDash(c.Revision), orDash(c.Digest))
 			}
 		}
+		if len(r.PulledImages) > 0 {
+			fmt.Fprintf(&sb, "pulled by the app, removed by cleanup: %s\n", strings.Join(r.PulledImages, ", "))
+		}
 		if len(r.DifferingImages) > 0 {
 			fmt.Fprintf(&sb, "WARNING: images on the board differ from the host registry, swapped under the tag or not pulled again: %s\n", strings.Join(r.DifferingImages, ", "))
 		}
@@ -127,8 +130,8 @@ func text(v any) string {
 			sb.WriteString("nothing to remove\n")
 		}
 		rem := r.Remaining
-		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | assets %s\n",
-			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.Assets))
+		fmt.Fprintf(&sb, "remaining: apps %s | containers %s | networks %s | dev images %s | pulled images %s | assets %s\n",
+			orNone(rem.Apps), orNone(rem.Containers), orNone(rem.Networks), orNone(rem.DevImages), orNone(rem.PulledImages), orNone(rem.Assets))
 		if len(rem.ExampleLeftovers) > 0 {
 			fmt.Fprintf(&sb, "example leftovers: %s\n", strings.Join(rem.ExampleLeftovers, ", "))
 		}

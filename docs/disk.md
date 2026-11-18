@@ -1,12 +1,13 @@
 # Disk: what is stored where
 
-The tool keeps state in exactly three places, each with a fixed name, so nothing can leak unseen. None of them holds anything that can't be rebuilt from a checkout.
+The tool keeps state in exactly four places, each with a fixed name, so nothing can leak unseen. None of them holds anything that can't be rebuilt from a checkout.
 
 | What | Where | Size | How to see it | How to get it back |
 |---|---|---|---|---|
 | Registry data | `~/Library/Caches/arduino-test-buddy/registry` on macOS, `~/.cache/arduino-test-buddy/registry` on Linux | compressed images, about a third of their size | `arduino-test-buddy status`, or `du -sh` | tags no push used for 3 days are dropped after every full push and on every `up` and `down`; `prune --tag <tag>` for one branch at once, `prune --all` for everything |
 | Build cache | the `arduino-test-buddy` buildx builder, in the Docker volume `buildx_buildkit_arduino-test-buddy0_state` | uncompressed layers, up to about twice the images | `docker buildx du --builder arduino-test-buddy` | entries no push used for 3 days are dropped after every full push and on every `up` and `down`; `prune --cache` empties it, `prune --all` removes the builder |
-| Pulled images on a board | the board's Docker, named `localhost:<port>/app-bricks/<image>:<tag>` | what the session's apps used | `preflight --tag <tag>` | `cleanup --tag <tag>` |
+| Pulled images on a board | the board's Docker: the dev images, named `localhost:<port>/app-bricks/<image>:<tag>`, and the images the apps pulled by themselves | what the session's apps used | `preflight --tag <tag>`, `cleanup --dry-run` | `cleanup --tag <tag>` |
+| Record of pulled images on a board | `/home/arduino/.cache/arduino-test-buddy/bt-<tag>.pulled`, one image per line | a few lines | `cleanup --dry-run` | `cleanup --tag <tag>` removes it after its images |
 
 ## The registry
 
@@ -22,7 +23,7 @@ When a full push ends, and on every `up` and `down`, the tool drops every cache 
 
 ## On a board
 
-The board stores only the images its apps pulled, under the session tag. `cleanup` removes them with the session's apps, containers, networks and assets folder. Nothing of the registry or the builder ever lives on a board.
+The board stores only the images its apps pulled: the dev images under the session tag, and the images an app pulls by itself, such as the database a brick runs. Each `run` compares the board's images before and after the start and records the new ones for the session; sessions take turns, so a new image is one this app asked for. `cleanup` removes the dev images and the recorded ones with the session's apps, containers, networks and assets folder, and never an image the board held before. Nothing of the registry or the builder ever lives on a board.
 
 ## Concurrency
 

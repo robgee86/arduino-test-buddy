@@ -166,7 +166,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_run",
-		Description: "Wait for this session's turn on the board, copy the app folder first for host:<folder>, start the app or example with the session's dev images pulled from the host registry through a read-only tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image, build revision and digest, listing the dev images whose digest differs from the host registry's, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
+		Description: "Wait for this session's turn on the board, copy the app folder first for host:<folder>, start the app or example with the session's dev images pulled from the host registry through a read-only tunnel that lives only for the call, wait until the marker appears in the log of this run or the timeout passes, record each container with its image, build revision and digest, listing the dev images whose digest differs from the host registry's and the other images the start pulled, which board_cleanup removes, then stop the app unless keep_running. Local apps are stored on the board as bt-<tag>-<name>, so sessions never collide. A failed start returns the start output and any brick variables it asked for.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runIn) (*mcp.CallToolResult, *board.RunResult, error) {
 		b, err := d.board(in.Target)
 		if err != nil {
@@ -222,7 +222,7 @@ func register(s *mcp.Server, d Defaults) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "board_cleanup",
-		Description: "Wait for this session's turn, then remove only what it owns: its bt-<tag>-* apps and their folders, the containers with their volumes and the networks of those apps and of the brick's examples unless another session kept one running, the images of the tag pulled on the board, and the assets folder of the tag, last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
+		Description: "Wait for this session's turn, then remove only what it owns: its bt-<tag>-* apps and their folders, the containers with their volumes and the networks of those apps and of the brick's examples unless another session kept one running, the images of the tag pulled on the board, the other images its apps pulled unless a container outside the session uses them, and the assets folder of the tag, last. Returns each step with its output and what the board still holds. Use dry_run to see the steps first.",
 		Annotations: destructive,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in cleanupIn) (*mcp.CallToolResult, *board.CleanupReport, error) {
 		b, err := d.board(in.Target)
