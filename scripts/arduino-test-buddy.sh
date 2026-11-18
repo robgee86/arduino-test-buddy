@@ -68,12 +68,15 @@ fetch() {
   [ -f "$tmp/out/arduino-test-buddy$ext" ] || fail "$archive holds no arduino-test-buddy$ext"
   chmod +x "$tmp/out/arduino-test-buddy$ext"
   mkdir -p "$home/$version"
-  mv "$tmp/out/arduino-test-buddy$ext" "$program"
+  # Another session may have fetched the same version meanwhile, and Windows cannot replace a program that runs: either way it is there.
+  mv "$tmp/out/arduino-test-buddy$ext" "$program" 2>/dev/null || [ -x "$program" ] || fail "could not place $program"
   rm -rf "$tmp"
   trap - EXIT
-  # The versions an update left behind go, so the folder never grows; one still running elsewhere is left alone.
+  # The versions an update left behind go, so the folder never grows. Only a folder holding the program is one:
+  # the folder of another session's fetch in progress and anything else are not touched.
   for old in "$home"/*/; do
-    [ "$old" = "$home/$version/" ] || rm -rf "$old" 2>/dev/null || true
+    [ "$old" != "$home/$version/" ] && [ -f "${old}arduino-test-buddy$ext" ] || continue
+    rm -rf "$old" 2>/dev/null || true
   done
 }
 

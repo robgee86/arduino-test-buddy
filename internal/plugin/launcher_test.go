@@ -172,8 +172,56 @@ func TestTheLauncherDropsTheVersionsAnUpdateLeftBehind(t *testing.T) {
 	if _, stderr, err := r.launch(home, "mcp"); err != nil {
 		t.Fatalf("%v\n%s", err, stderr)
 	}
-	entries, _ := os.ReadDir(home)
-	if len(entries) != 1 {
-		t.Errorf("only the current version may stay in the data folder, found %d entries", len(entries))
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the version an update left behind must go, or the data folder grows with every release")
+	}
+}
+
+func TestTheLauncherTouchesNothingButOlderVersions(t *testing.T) {
+	r, home := newRelease(t), t.TempDir()
+	// What is not a version folder: another session's fetch in progress, and anything a user or a tool put there
+	kept := []string{filepath.Join("fetch.Ab12Cd", "out", exeName()), filepath.Join("notes", "keep.txt"), "loose.txt"}
+	for _, path := range kept {
+		full := filepath.Join(home, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, stderr, err := r.launch(home, "mcp"); err != nil {
+		t.Fatalf("%v\n%s", err, stderr)
+	}
+	for _, path := range kept {
+		if _, err := os.Stat(filepath.Join(home, path)); err != nil {
+			t.Errorf("the launcher removed %s, which is not an older version", path)
+		}
+	}
+}
+
+func TestSessionsStartingTogetherOnAFreshInstallAllGetTheProgram(t *testing.T) {
+	r, home := newRelease(t), t.TempDir()
+	const sessions = 4
+	type result struct {
+		stdout, stderr string
+		err            error
+	}
+	results := make(chan result, sessions)
+	for range sessions {
+		go func() {
+			stdout, stderr, err := r.launch(home, "mcp")
+			results <- result{stdout, stderr, err}
+		}()
+	}
+	for range sessions {
+		// A server that fails once is skipped by the sessions that follow, so no start may lose to another one's fetch
+		if got := <-results; got.err != nil || strings.TrimSpace(got.stdout) != "fake buddy: mcp" {
+			t.Errorf("every session must end up running the program: %q %v\n%s", got.stdout, got.err, got.stderr)
+		}
+	}
+	left, _ := filepath.Glob(filepath.Join(home, "fetch.*"))
+	if len(left) != 0 {
+		t.Errorf("no fetch folder may stay behind: %v", left)
 	}
 }
