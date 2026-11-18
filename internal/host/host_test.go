@@ -5,6 +5,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -231,8 +232,12 @@ func TestUpCreatesWhatIsMissingWithoutAutomaticRestarts(t *testing.T) {
 	if _, err := h.Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !cmd.ran("docker run -d --name arduino-test-buddy-registry --user") || cmd.ran("--restart unless-stopped") {
+	if !cmd.ran("docker run -d --name arduino-test-buddy-registry") || cmd.ran("--restart unless-stopped") {
 		t.Error("the registry must be created without a restart policy")
+	}
+	// Windows has no user id to run the registry as
+	if hasUser := os.Getuid() >= 0; cmd.ran("--user") != hasUser {
+		t.Errorf("the registry must run as the user exactly where the system has user ids:\n%s", strings.Join(cmd.commands, "\n"))
 	}
 	if !cmd.ran("docker buildx create --name arduino-test-buddy --driver docker-container --driver-opt network=host --bootstrap") {
 		t.Error("a missing builder must be created with host networking")
@@ -304,9 +309,11 @@ func TestDownWaitsForRunsHoldingTheRegistry(t *testing.T) {
 		t.Errorf("a down must not get the lock while a run holds the registry: %v", err)
 	}
 	release()
-	if _, err := h.lock(true, false); err != nil {
-		t.Errorf("the lock must be free once the run released it: %v", err)
+	free, err := h.lock(true, false)
+	if err != nil {
+		t.Fatalf("the lock must be free once the run released it: %v", err)
 	}
+	free.release()
 }
 
 func TestUpDropsTheTagsNoPushUsedFor3DaysAndKeepsTheOthers(t *testing.T) {
@@ -452,8 +459,52 @@ func TestPruneWaitsForRunningPushesAndAPushSkipsPruningDuringOne(t *testing.T) {
 		t.Errorf("pruning during another push must be skipped, cache and tags alike: %+v %v %v", steps, dropped, reg.deleted)
 	}
 	shared.release()
-	if _, err := h.lock(true, false); err != nil {
-		t.Errorf("the lock must be free once the push released it: %v", err)
+	free, err := h.lock(true, false)
+	if err != nil {
+		t.Fatalf("the lock must be free once the push released it: %v", err)
+	}
+	free.release()
+}
+
+func TestPushesShareTheCacheAndAPruneTakesItAlone(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{})
+	first, err := h.lock(false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.lock(false, false)
+	if err != nil {
+		t.Fatalf("two pushes must hold the cache together: %v", err)
+	}
+	if _, err := h.lock(true, false); err != errBusy {
+		t.Errorf("a prune must find the cache busy while pushes hold it: %v", err)
+	}
+	// A waiting prune gets the cache as soon as the last push lets go
+	got := make(chan error, 1)
+	go func() {
+		alone, err := h.lock(true, true)
+		if err == nil {
+			defer alone.release()
+			if _, busy := h.lock(false, false); busy != errBusy {
+				err = errors.New("a push got the cache while a prune held it alone")
+			}
+		}
+		got <- err
+	}()
+	first.release()
+	select {
+	case err := <-got:
+		t.Fatalf("the prune must wait for every push, it ended with %v after the first one", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	second.release()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the waiting prune never got the cache")
 	}
 }
 

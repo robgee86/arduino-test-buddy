@@ -7,7 +7,11 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -17,3 +21,61 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: task check
+      - name: Check the release build config
+        if: runner.os == 'Linux'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+      # The tests of the real ssh client need a Linux sshd: the runner's own on Linux, one in a WSL distribution on Windows.
+      - name: Start a Linux sshd on the runner
+        if: runner.os == 'Linux'
+        run: |
+          command -v sshd >/dev/null || sudo apt-get install -y openssh-server
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/bt_key
+          cat ~/.ssh/bt_key.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl start ssh
+          printf 'Host bt-target\n  HostName 127.0.0.1\n  User %s\n  IdentityFile ~/.ssh/bt_key\n  StrictHostKeyChecking no\n' "$USER" >> ~/.ssh/config
+      - uses: Vampire/setup-wsl@v7
+        if: runner.os == 'Windows'
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: 1
+          additional-packages: openssh-server curl
+      - name: Set up a Linux sshd in WSL
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          # Git's shell would rewrite the Linux paths below into Windows ones
+          MSYS_NO_PATHCONV: 1
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/bt_key
+          wsl -u root -- sh -c "mkdir -p /root/.ssh /run/sshd && tr -d '\r' > /root/.ssh/authorized_keys && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys && ssh-keygen -A" < ~/.ssh/bt_key.pub
+          printf 'Host bt-target\n  HostName 127.0.0.1\n  Port 2222\n  User root\n  IdentityFile ~/.ssh/bt_key\n  StrictHostKeyChecking no\n' >> ~/.ssh/config
+      - name: Start the sshd in WSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Start-Process wsl -ArgumentList '-u', 'root', '--', '/usr/sbin/sshd', '-D', '-p', '2222' -WindowStyle Hidden
+      - name: Wait for the sshd
+        shell: pwsh
+        run: |
+          Write-Output "ssh client: $((Get-Command ssh).Source)"
+          foreach ($i in 1..30) {
+            ssh -o BatchMode=yes -o ConnectTimeout=5 bt-target true
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep 1
+          }
+          ssh -v -o BatchMode=yes -o ConnectTimeout=5 bt-target true 2>&1 | Select-Object -Last 40
+          Write-Output "the ssh target does not answer"
+          exit 1
+      - name: Test the real ssh client against it
+        run: go test ./internal/board -run TestSSH -v -count=1
+        env:
+          BUDDY_TEST_SSH_TARGET: bt-target
+      - name: Run the built tool on the runner and against the sshd
+        run: |
+          go run ./cmd/arduino-test-buddy status
+          go run ./cmd/arduino-test-buddy --board bt-target shell "uname -s"

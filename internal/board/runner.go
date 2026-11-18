@@ -78,16 +78,27 @@ func (s SSH) Run(ctx context.Context, script string) (Output, error) {
 	return out, nil
 }
 
-// Push replaces remoteDir with a copy of the contents of localDir, streamed as a compressed tar.
+// Push replaces remoteDir with a copy of the contents of localDir, archived here and streamed to the board's tar, so the developer machine needs neither tar nor a shell.
 func (s SSH) Push(ctx context.Context, localDir, remoteDir string) error {
 	remote := shell.Join("rm", "-rf", remoteDir) + " && " + shell.Join("mkdir", "-p", remoteDir) + " && " + shell.Join("tar", "xzf", "-", "-C", remoteDir)
-	pipeline := shell.Join("tar", "czf", "-", "-C", localDir, ".") + " | " +
-		shell.Join(append(append([]string{"ssh"}, sshOptions...), s.Target, "--", remote)...)
-	cmd := exec.CommandContext(ctx, "sh", "-c", pipeline)
+	cmd := exec.CommandContext(ctx, "ssh", append(append([]string{}, sshOptions...), s.Target, "--", remote)...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ssh to %s: %w", s.Target, err)
+	}
+	// A board that stops reading ends the stream with a broken pipe, and its own error says why.
+	archiveErr := archive(localDir, stdin)
+	stdin.Close()
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("push %s to %s:%s: %w: %s", localDir, s.Target, remoteDir, err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	if archiveErr != nil {
+		return fmt.Errorf("push %s to %s:%s: %w", localDir, s.Target, remoteDir, archiveErr)
 	}
 	return nil
 }
