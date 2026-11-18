@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.5.0...v0.6.0) (2026-11-18)
+
+
+### Features
+
+* **plugin:** fetch the program from its release, installing the plugin is all it takes ([#15](https://github.com/robgee86/arduino-test-buddy/issues/15)) ([5dcf193](https://github.com/robgee86/arduino-test-buddy/commit/5dcf19398e3d6f3582e958213cd4060740ec5b17))
+
+
+### Bug Fixes
+
+* **mcp:** end the server on a stop signal while a request is open ([#16](https://github.com/robgee86/arduino-test-buddy/issues/16)) ([52fed41](https://github.com/robgee86/arduino-test-buddy/commit/52fed4117eee9588dbd72aca41721aa8e58daf90))
+
 ## [0.5.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.4.0...v0.5.0) (2026-11-18)
 
 
