@@ -75,3 +75,7 @@ jobs:
         run: go test ./internal/board -run TestSSH -v -count=1
         env:
           BUDDY_TEST_SSH_TARGET: bt-target
+      - name: Run the built tool on the runner and against the sshd
+        run: |
+          go run ./cmd/arduino-test-buddy status
+          go run ./cmd/arduino-test-buddy --board bt-target shell "uname -s"
