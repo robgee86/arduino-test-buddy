@@ -68,8 +68,10 @@ func (Exec) Run(ctx context.Context, dir string, env []string, name string, args
 type Host struct {
 	// Dir is the cache folder: deleting it with the registry stopped is always safe, everything in it rebuilds from a checkout.
 	Dir string
-	url string
-	cmd Commander
+	// ConfigFile is the developer's config file, read at every push so an edit applies at once.
+	ConfigFile string
+	url        string
+	cmd        Commander
 }
 
 // New uses the user cache folder of the platform, ~/Library/Caches on macOS and ~/.cache on Linux.
@@ -78,7 +80,7 @@ func New() (*Host, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Host{Dir: filepath.Join(cache, "arduino-test-buddy"), url: "http://127.0.0.1:" + RegistryPort, cmd: Exec{}}, nil
+	return &Host{Dir: filepath.Join(cache, "arduino-test-buddy"), ConfigFile: configFile(), url: "http://127.0.0.1:" + RegistryPort, cmd: Exec{}}, nil
 }
 
 // RegistryDir holds the registry's data, bind-mounted into its container.

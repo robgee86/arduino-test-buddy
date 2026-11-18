@@ -138,7 +138,7 @@ func pushCmd(o *options) *cobra.Command {
 			return h.Push(ctx, req)
 		})
 	f := cmd.Flags()
-	f.StringVar(&req.Source, "source", ".", "app-bricks-py checkout to build from")
+	f.StringVar(&req.Source, "source", "", "app-bricks-py checkout to build from; default the current folder when it is one, else the source set in ~/.config/arduino-test-buddy/config.yaml")
 	f.StringSliceVar(&req.Targets, "targets", nil, "bake targets to build and push, default every container")
 	f.BoolVar(&req.SkipWheel, "skip-wheel", false, "reuse dist/ instead of rebuilding the wheel")
 	return cmd

@@ -16,7 +16,7 @@ import (
 
 // PushRequest builds the images of a checkout and pushes them to the registry on the developer machine.
 type PushRequest struct {
-	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory, whether it is a worktree is the caller's choice"`
+	Source    string   `json:"source,omitempty" jsonschema:"app-bricks-py checkout to build from; default the current directory when it is one, else the source set in ~/.config/arduino-test-buddy/config.yaml; whether it is a worktree is the caller's choice"`
 	Tag       string   `json:"tag,omitempty" jsonschema:"image tag; default the branch name, or bt-<worktree folder> on a detached HEAD"`
 	Targets   []string `json:"targets,omitempty" jsonschema:"bake targets to build and push; default every container, which also drops the build cache and the tags no push used for 3 days"`
 	SkipWheel bool     `json:"skip_wheel,omitempty" jsonschema:"reuse dist/ instead of rebuilding the wheel"`
@@ -24,7 +24,9 @@ type PushRequest struct {
 
 // PushResult is what the registry holds under the tag after the push, from which commit, and how long each step took.
 type PushResult struct {
-	Tag      string `json:"tag"`
+	Tag string `json:"tag"`
+	// Source is the checkout that was built: the one asked for, the current folder or the one of the config file.
+	Source   string `json:"source"`
 	Revision string `json:"revision"`
 	// Images lists every repository carrying the tag, including those an earlier full push of the tag left.
 	Images []string `json:"images"`
@@ -39,12 +41,9 @@ var slugRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
 // Push builds with the repository's own tasks on the tool's builder, which pushes straight into the registry; a full push then drops the cache and the tags no push used for 3 days. It needs the tool up.
 func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
-	source, err := filepath.Abs(req.Source)
+	source, err := h.source(req.Source)
 	if err != nil {
 		return nil, err
-	}
-	if _, err := os.Stat(filepath.Join(source, "docker-bake.hcl")); err != nil {
-		return nil, fmt.Errorf("%s is not an app-bricks-py checkout: no docker-bake.hcl", source)
 	}
 	revision, err := gitRevision(ctx, source)
 	if err != nil {
@@ -55,7 +54,7 @@ func (h *Host) Push(ctx context.Context, req PushRequest) (*PushResult, error) {
 			return nil, err
 		}
 	}
-	res := &PushResult{Tag: req.Tag, Revision: revision, Images: []string{}, Steps: []Step{}}
+	res := &PushResult{Tag: req.Tag, Source: source, Revision: revision, Images: []string{}, Steps: []Step{}}
 	shared, err := h.lock(false, true)
 	if err != nil {
 		return nil, err
