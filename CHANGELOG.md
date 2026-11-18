@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.3.0...v0.4.0) (2026-11-18)
+
+
+### Features
+
+* drop registry tags after 3 days and remove the images apps pulled on cleanup ([#8](https://github.com/robgee86/arduino-test-buddy/issues/8)) ([b468e84](https://github.com/robgee86/arduino-test-buddy/commit/b468e8431257f579e3da074a50f27ffa9f7288bf))
+
 ## [0.3.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.2.0...v0.3.0) (2026-10-22)
 
 
