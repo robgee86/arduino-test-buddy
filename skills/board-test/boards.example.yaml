@@ -16,9 +16,8 @@ boards:
     # RAM variant of this unit, when it is not the model's default
     # ram: 2G
 
-  # Explicit coordinates instead of an alias:
+  # Explicit coordinates instead of an alias, the key coming from ssh's defaults or ~/.ssh/config:
   # - board: uno-q
   #   ssh:
   #     host: 192.168.1.42
   #     user: arduino
-  #     key: ~/.ssh/id_ed25519  # or password: "..." (requires sshpass; prefer keys)

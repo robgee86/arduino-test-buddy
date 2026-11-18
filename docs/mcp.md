@@ -36,7 +36,7 @@ The file is read at every push, so an edit applies at once. An unknown key is an
 
 ## Boards of the developer
 
-The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../skills/board-test/boards.example.yaml) there and edit it. It lives outside the repository, whose installed copy is replaced on every update.
+The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../skills/board-test/boards.example.yaml) there and edit it, or let the first session ask for your board and write the file. It lives outside the repository, whose installed copy is replaced on every update.
 
 ## Tools
 
