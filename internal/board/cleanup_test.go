@@ -23,6 +23,24 @@ func TestCleanupLeavesTheAssetsTheReleaseShips(t *testing.T) {
 	}
 }
 
+func TestCleanupDestroysAnExtraAppOnlyWhenItNamesAFolderOfTheAppsFolder(t *testing.T) {
+	for _, app := range []string{"", ".", "..", "../.ssh", "bt-old/../../.ssh", "/etc"} {
+		f := &fakeRunner{}
+		_, err := New("x", f, Dev{Tag: "bt-x"}).Cleanup(context.Background(), CleanupRequest{Apps: []string{"bt-old", app}})
+		if err == nil || len(f.leases) != 0 || len(f.scripts) != 0 {
+			t.Errorf("%q must be refused before the board is touched: %v, %d turns, %d scripts", app, err, len(f.leases), len(f.scripts))
+		}
+	}
+	f := (&fakeRunner{}).on(`@@apps`, "@@apps\n@@containers\n@@networks\n@@images\n@@assets\n@@packaged\n")
+	report, err := New("x", f, Dev{Tag: "bt-x"}).Cleanup(context.Background(), CleanupRequest{Apps: []string{"bt-old"}, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(report.Steps, func(s Step) bool { return s.Command == "rm -rf /home/arduino/ArduinoApps/bt-old" }) {
+		t.Errorf("an extra app named by its folder must go: %+v", report.Steps)
+	}
+}
+
 // pulledInventory is a board where the session's apps pulled two images, one already gone, next to an image that was there before.
 const pulledInventory = "@@apps\n@@containers\n@@networks\nbridge\n" +
 	"@@images\ninfluxdb:2.7-alpine\ninfluxdb:2.9-alpine\n@@assets\n@@pulled\ninfluxdb:2.9-alpine\nredis:8\ninfluxdb:2.9-alpine\n@@packaged\n"

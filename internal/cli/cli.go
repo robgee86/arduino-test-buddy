@@ -297,7 +297,7 @@ func cleanupCmd(o *options) *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&req.Brick, "brick", "", "brick whose example containers and networks are removed")
-	f.StringArrayVar(&req.Apps, "app", nil, "extra user app to destroy, repeatable")
+	f.StringArrayVar(&req.Apps, "app", nil, "extra user app to destroy, named by its folder in ArduinoApps, repeatable")
 	f.BoolVar(&req.DryRun, "dry-run", false, "list the steps without running them")
 	return cmd
 }
