@@ -65,7 +65,7 @@ func text(v any) string {
 			fmt.Fprintf(&sb, "tag %s  pushed %s (%s ago)  images: %d%s\n", t.Name, t.Pushed.Format("2006-01-02 15:04"), age(now.Sub(t.Pushed)), len(t.Images), stale)
 		}
 	case *host.PushResult:
-		fmt.Fprintf(&sb, "tag: %s  revision: %s\n", r.Tag, r.Revision)
+		fmt.Fprintf(&sb, "tag: %s  revision: %s\nsource: %s\n", r.Tag, r.Revision, r.Source)
 		writeSteps(&sb, r.Steps)
 		fmt.Fprintf(&sb, "images: %s\n", orNone(r.Images))
 		if r.Error != "" && len(r.Steps) > 0 {

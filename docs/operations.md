@@ -12,7 +12,7 @@ The operations split by where they run. `up`, `down`, `status`, `push` and `prun
 
 ## push
 
-Builds on the developer machine from the checkout it is given (`--source`, default the current directory) through the repository's own `task build:bricks` and `task build:containers PUSH=1`, on the tool's dedicated builder, which pushes straight into the registry. Nothing lands in Docker's own image store. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
+Builds on the developer machine from an `app-bricks-py` checkout, picked in this order: the one given with `--source`; the current folder, when it is a checkout; the one set as `source` in `~/.config/arduino-test-buddy/config.yaml`. The current folder comes before the config file so a session inside a worktree builds that worktree, and the config file serves the sessions started anywhere else. The result names the checkout that was built. The build goes through the repository's own `task build:bricks` and `task build:containers PUSH=1`, on the tool's dedicated builder, which pushes straight into the registry. Nothing lands in Docker's own image store. Whether the checkout is a worktree is the caller's choice; the tool never creates one.
 
 By default every container is built and pushed, so nothing a brick's compose files name can be missing on any board, and at the end the build cache and the tags no push used for 3 days are dropped. `--targets` narrows the build and skips the pruning. Unchanged layers come from the cache, so a Python-only change rebuilds the wheel layer and little else.
 

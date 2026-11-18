@@ -145,6 +145,87 @@ func checkout(t *testing.T, branch string) string {
 	return dir
 }
 
+// configure writes the developer's config file for h.
+func configure(t *testing.T, h *Host, content string) {
+	h.ConfigFile = filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(h.ConfigFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// built pushes without naming a source from the folder cwd and returns the checkout that was built, as a real path.
+func built(t *testing.T, h *Host, cwd string, req PushRequest) (string, error) {
+	t.Chdir(cwd)
+	req.SkipWheel, req.Targets = true, []string{"tps"}
+	res, err := h.Push(context.Background(), req)
+	if err != nil {
+		return "", err
+	}
+	return realPath(t, res.Source), nil
+}
+
+func realPath(t *testing.T, path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return real
+}
+
+func TestPushBuildsTheCheckoutAskedForTheCurrentOneOrTheConfiguredOneInThatOrder(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
+	asked, current, configured, elsewhere := checkout(t, "main"), checkout(t, "main"), checkout(t, "main"), t.TempDir()
+	configure(t, h, "source: "+configured+"\n")
+
+	if got, err := built(t, h, current, PushRequest{Source: asked}); err != nil || got != realPath(t, asked) {
+		t.Errorf("the checkout asked for must win over the current and the configured one: %q %v", got, err)
+	}
+	if got, err := built(t, h, current, PushRequest{}); err != nil || got != realPath(t, current) {
+		t.Errorf("inside a checkout, a worktree included, that checkout is built whatever the config says: %q %v", got, err)
+	}
+	if got, err := built(t, h, elsewhere, PushRequest{}); err != nil || got != realPath(t, configured) {
+		t.Errorf("outside any checkout the configured one is built: %q %v", got, err)
+	}
+}
+
+func TestPushReadsTheConfiguredCheckoutUnderTheHomeFolder(t *testing.T) {
+	h, _, _ := newHost(t, map[string][]string{"app-bricks/tps": {"main"}})
+	home := checkout(t, "main")
+	t.Setenv("HOME", filepath.Dir(home))
+	t.Setenv("USERPROFILE", filepath.Dir(home))
+	configure(t, h, "source: ~/"+filepath.Base(home)+"\n")
+	if got, err := built(t, h, t.TempDir(), PushRequest{}); err != nil || got != realPath(t, home) {
+		t.Errorf("a leading ~ is the home folder: %q %v", got, err)
+	}
+}
+
+func TestPushSaysWhereACheckoutCanComeFromWhenItFindsNone(t *testing.T) {
+	h, cmd, _ := newHost(t, map[string][]string{})
+	elsewhere := t.TempDir()
+	for name, tc := range map[string]struct {
+		config string
+		req    PushRequest
+		want   string
+	}{
+		"nothing given, no config":          {"", PushRequest{}, "set `source` in"},
+		"an empty config":                   {"\n", PushRequest{}, "set `source` in"},
+		"a configured folder with no build": {"source: " + elsewhere + "\n", PushRequest{}, "the source set in"},
+		"a misspelled key":                  {"sorce: " + elsewhere + "\n", PushRequest{}, "sorce"},
+		"an asked folder with no build":     {"", PushRequest{Source: elsewhere}, "is not an app-bricks-py checkout"},
+	} {
+		h.ConfigFile = ""
+		if tc.config != "" {
+			configure(t, h, tc.config)
+		}
+		if _, err := built(t, h, elsewhere, tc.req); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: want an error naming %q, got %v", name, tc.want, err)
+		}
+	}
+	if cmd.ran("task ") {
+		t.Error("nothing may build without a checkout")
+	}
+}
+
 func TestSlug(t *testing.T) {
 	for in, want := range map[string]string{
 		"object-tracking":     "object-tracking",

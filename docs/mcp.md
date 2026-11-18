@@ -20,6 +20,16 @@ Without the plugin, or with another agent, install the two parts yourself.
 - The server: `claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp` for Claude Code, or the same command registered as a stdio server in any MCP client.
 - The skill: copy [skills/board-test](../skills/board-test) into the agent's skills folder, `~/.claude/skills/` for Claude Code. It is a plain folder, a `SKILL.md` with the files it links. An agent without skills can be given the `SKILL.md` as instructions.
 
+## Settings of the developer
+
+`~/.config/arduino-test-buddy/config.yaml` holds what a developer sets once. Today it has one key, `source`, the `app-bricks-py` checkout `buddy_push` builds when no source is given and the session's folder is not a checkout:
+
+```yaml
+source: ~/Code/app-bricks-py
+```
+
+The file is read at every push, so an edit applies at once. An unknown key is an error.
+
 ## Boards of the developer
 
 The skill picks a board from `~/.config/arduino-test-buddy/boards.yaml`: the SSH alias of each board the developer can reach, its RAM variant and the peripherals at hand. Copy [boards.example.yaml](../skills/board-test/boards.example.yaml) there and edit it. It lives outside the repository, whose installed copy is replaced on every update.
