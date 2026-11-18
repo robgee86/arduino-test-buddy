@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.6.0...v0.7.0) (2026-11-18)
+
+
+### Features
+
+* **skill:** guide boards.yaml setup and drop the unsupported key and password fields ([#19](https://github.com/robgee86/arduino-test-buddy/issues/19)) ([ab8c121](https://github.com/robgee86/arduino-test-buddy/commit/ab8c1212acffa9ed91cc1186d663e22931ab1a62))
+
+
+### Bug Fixes
+
+* validate the board, app and target names given to the tools ([#20](https://github.com/robgee86/arduino-test-buddy/issues/20)) ([a44c86a](https://github.com/robgee86/arduino-test-buddy/commit/a44c86af35f93abe17909fd6728ca39513887078))
+
 ## [0.6.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.5.0...v0.6.0) (2026-11-18)
 
 
