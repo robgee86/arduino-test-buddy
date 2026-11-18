@@ -41,11 +41,12 @@ download() {
   fi
 }
 
+# The file goes in on stdin: given a Windows path, the tools escape the name and mark the line with a backslash before the hash.
 sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | cut -d ' ' -f 1
+    sha256sum < "$1" | cut -d ' ' -f 1
   else
-    shasum -a 256 "$1" | cut -d ' ' -f 1
+    shasum -a 256 < "$1" | cut -d ' ' -f 1
   fi
 }
 
