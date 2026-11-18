@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -38,8 +39,14 @@ func main() { fmt.Println("fake buddy: " + strings.Join(os.Args[1:], "|")) }
 type release struct {
 	url      string
 	requests atomic.Int32
+	// program is the released program, which a test also plants as a version kept from before an update.
+	program []byte
 	// tamper makes the checksums file disagree with the archive.
 	tamper atomic.Bool
+	// gone makes the release answer that it has no such file.
+	gone atomic.Bool
+	// stall makes the release accept a request and never answer it.
+	stall atomic.Bool
 }
 
 func exeName() string {
@@ -76,30 +83,47 @@ func archive(t *testing.T, program []byte) (name string, data []byte) {
 	return base + ".tar.gz", buf.Bytes()
 }
 
-func newRelease(t *testing.T) *release {
-	src := t.TempDir()
+// builtProgram builds the fake program once for all the tests.
+var builtProgram = sync.OnceValues(func() ([]byte, error) {
+	src, err := os.MkdirTemp("", "fakebuddy")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(src)
 	for file, content := range map[string]string{"main.go": fakeProgram, "go.mod": "module fakebuddy\n\ngo 1.24\n"} {
 		if err := os.WriteFile(filepath.Join(src, file), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
+			return nil, err
 		}
 	}
 	built := filepath.Join(src, exeName())
 	build := exec.Command("go", "build", "-o", built, ".")
 	build.Dir = src
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building the fake program: %v\n%s", err, out)
+		return nil, fmt.Errorf("%v\n%s", err, out)
 	}
-	program, err := os.ReadFile(built)
+	return os.ReadFile(built)
+})
+
+func newRelease(t *testing.T) *release {
+	program, err := builtProgram()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("building the fake program: %v", err)
 	}
 	name, data := archive(t, program)
 	sum := sha256.Sum256(data)
 	var manifest struct{ Version string }
 	read(t, ".claude-plugin/plugin.json", &manifest)
-	r := &release{}
+	r := &release{program: program}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.requests.Add(1)
+		if r.stall.Load() {
+			<-req.Context().Done()
+			return
+		}
+		if r.gone.Load() {
+			http.NotFound(w, req)
+			return
+		}
 		switch req.URL.Path {
 		case "/v" + manifest.Version + "/" + name:
 			w.Write(data)
@@ -118,11 +142,11 @@ func newRelease(t *testing.T) *release {
 	return r
 }
 
-// launch runs the launcher as Claude Code does, with home as the plugin's data folder.
+// launch runs the launcher as Claude Code does, with home as the plugin's data folder. A fetch gets 2 seconds, so a stalled one ends soon.
 func (r *release) launch(home string, args ...string) (stdout, stderr string, err error) {
 	script, _ := filepath.Abs(filepath.Join(root, launcher))
 	cmd := exec.Command("sh", append([]string{script}, args...)...)
-	cmd.Env = append(os.Environ(), "ARDUINO_TEST_BUDDY_HOME="+home, "ARDUINO_TEST_BUDDY_RELEASES="+r.url)
+	cmd.Env = append(os.Environ(), "ARDUINO_TEST_BUDDY_HOME="+home, "ARDUINO_TEST_BUDDY_RELEASES="+r.url, "ARDUINO_TEST_BUDDY_FETCH_SECONDS=2")
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	err = cmd.Run()
@@ -160,15 +184,72 @@ func TestTheLauncherRefusesAnArchiveThatDoesNotMatchItsChecksum(t *testing.T) {
 	}
 }
 
+// keep plants a version in the data folder, as an earlier fetch left it.
+func keep(t *testing.T, home, version string, program []byte) string {
+	t.Helper()
+	dir := filepath.Join(home, version)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, exeName()), program, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestTheLauncherRunsTheNewestKeptVersionWhenTheUpdateCannotBeFetched(t *testing.T) {
+	failures := map[string]func(*release){
+		"the release is not there":            func(r *release) { r.gone.Store(true) },
+		"the archive does not match":          func(r *release) { r.tamper.Store(true) },
+		"the release accepts and never sends": func(r *release) { r.stall.Store(true) },
+	}
+	for name, fail := range failures {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			r, home := newRelease(t), t.TempDir()
+			// Only the newest one runs: 0.0.10 comes after 0.0.9, though not in the order of their names
+			older := keep(t, home, "0.0.9", []byte("not a program"))
+			newest := keep(t, home, "0.0.10", r.program)
+			fail(r)
+			stdout, stderr, err := r.launch(home, "mcp")
+			if err != nil || strings.TrimSpace(stdout) != "fake buddy: mcp" || !strings.Contains(stderr, "running version 0.0.10") {
+				t.Fatalf("the newest kept version must run and stderr must say so: %q %v\n%s", stdout, err, stderr)
+			}
+			if left, _ := filepath.Glob(filepath.Join(home, "fetch.*")); len(left) != 0 {
+				t.Errorf("a failed fetch must leave nothing behind: %v", left)
+			}
+
+			r.gone.Store(false)
+			r.tamper.Store(false)
+			r.stall.Store(false)
+			if stdout, stderr, err := r.launch(home, "mcp"); err != nil || strings.TrimSpace(stdout) != "fake buddy: mcp" || strings.Contains(stderr, "running version") {
+				t.Fatalf("the next start must fetch the update and run it: %q %v\n%s", stdout, err, stderr)
+			}
+			for _, dir := range []string{older, newest} {
+				if _, err := os.Stat(dir); err == nil {
+					t.Errorf("%s must go once the update is fetched", dir)
+				}
+			}
+		})
+	}
+}
+
+func TestTheLauncherFailsWhenNothingCanBeFetchedAndNoVersionIsKept(t *testing.T) {
+	t.Parallel()
+	r, home := newRelease(t), t.TempDir()
+	r.stall.Store(true)
+	stdout, stderr, err := r.launch(home, "mcp")
+	if err == nil || stdout != "" || !strings.Contains(stderr, "could not fetch version") {
+		t.Errorf("a first start that cannot fetch must fail, say why on stderr and print nothing on stdout: %q %q %v", stdout, stderr, err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(home, "fetch.*")); len(left) != 0 {
+		t.Errorf("a failed fetch must leave nothing behind: %v", left)
+	}
+}
+
 func TestTheLauncherDropsTheVersionsAnUpdateLeftBehind(t *testing.T) {
 	r, home := newRelease(t), t.TempDir()
-	old := filepath.Join(home, "0.0.1")
-	if err := os.MkdirAll(old, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(old, exeName()), []byte("old"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	old := keep(t, home, "0.0.1", []byte("old"))
 	if _, stderr, err := r.launch(home, "mcp"); err != nil {
 		t.Fatalf("%v\n%s", err, stderr)
 	}

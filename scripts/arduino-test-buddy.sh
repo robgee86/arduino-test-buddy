@@ -4,12 +4,15 @@
 #
 # Runs the arduino-test-buddy program of this plugin's version with the given arguments.
 # The program is fetched from the GitHub release on first use and kept in the plugin's data folder.
+# When an update cannot be fetched, the version kept from before runs and the next start tries again.
 # Nothing is ever printed on stdout before the program takes over: it carries the MCP protocol.
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 home=${ARDUINO_TEST_BUDDY_HOME:?must name the folder that keeps the fetched program}
 releases=${ARDUINO_TEST_BUDDY_RELEASES:-https://github.com/robgee86/arduino-test-buddy/releases/download}
+# Claude Code gives a server 30 seconds to start: the fetch must end, or give way to a kept version, well before.
+budget=${ARDUINO_TEST_BUDDY_FETCH_SECONDS:-20}
 version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$root/.claude-plugin/plugin.json" | head -n 1)
 [ -n "$version" ] || { echo "arduino-test-buddy: no version in $root/.claude-plugin/plugin.json" >&2; exit 1; }
 
@@ -27,17 +30,14 @@ case $(uname -m) in
 esac
 program=$home/$version/arduino-test-buddy$ext
 
-fail() {
-  echo "arduino-test-buddy: $1" >&2
-  echo "arduino-test-buddy: could not fetch version $version for $os/$arch from $releases" >&2
-  exit 1
-}
-
+# Each download gets what is left of the fetch's time. wget bounds only a stall, not the whole transfer.
 download() {
+  left=$((deadline - $(date +%s)))
+  [ "$left" -gt 0 ] || return 1
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 2 -o "$2" "$1"
+    curl -fsSL --max-time "$left" -o "$2" "$1"
   else
-    wget -q -O "$2" "$1"
+    wget -q -t 1 -T "$left" -O "$2" "$1"
   fi
 }
 
@@ -50,12 +50,20 @@ sha256() {
   fi
 }
 
-fetch() {
+# Downloads the archive of this version, checks it and places the program.
+# It runs in a subshell: a failure says why, leaves nothing behind and ends only the fetch.
+fetch() (
+  tmp=
+  fail() {
+    echo "arduino-test-buddy: $1" >&2
+    echo "arduino-test-buddy: could not fetch version $version for $os/$arch from $releases" >&2
+    [ -z "$tmp" ] || rm -rf "$tmp"
+    exit 1
+  }
   archive=arduino-test-buddy_${version}_${os}_${arch}.tar.gz
   [ "$os" = windows ] && archive=arduino-test-buddy_${version}_${os}_${arch}.zip
-  mkdir -p "$home"
-  tmp=$(mktemp -d "$home/fetch.XXXXXX")
-  trap 'rm -rf "$tmp"' EXIT
+  deadline=$(($(date +%s) + budget))
+  mkdir -p "$home" && tmp=$(mktemp -d "$home/fetch.XXXXXX") || fail "cannot write in $home"
   download "$releases/v$version/$archive" "$tmp/$archive" || fail "download of $archive failed"
   download "$releases/v$version/checksums.txt" "$tmp/checksums.txt" || fail "download of checksums.txt failed"
   want=$(awk -v name="$archive" '$2 == name { print $1 }' "$tmp/checksums.txt")
@@ -66,19 +74,30 @@ fetch() {
     mkdir "$tmp/out" && tar -xzf "$tmp/$archive" -C "$tmp/out" || fail "could not unpack $archive"
   fi
   [ -f "$tmp/out/arduino-test-buddy$ext" ] || fail "$archive holds no arduino-test-buddy$ext"
-  chmod +x "$tmp/out/arduino-test-buddy$ext"
-  mkdir -p "$home/$version"
+  chmod +x "$tmp/out/arduino-test-buddy$ext" && mkdir -p "$home/$version" || fail "cannot write in $home"
   # Another session may have fetched the same version meanwhile, and Windows cannot replace a program that runs: either way it is there.
   mv "$tmp/out/arduino-test-buddy$ext" "$program" 2>/dev/null || [ -x "$program" ] || fail "could not place $program"
   rm -rf "$tmp"
-  trap - EXIT
   # The versions an update left behind go, so the folder never grows. Only a folder holding the program is one:
   # the folder of another session's fetch in progress and anything else are not touched.
   for old in "$home"/*/; do
     [ "$old" != "$home/$version/" ] && [ -f "${old}arduino-test-buddy$ext" ] || continue
     rm -rf "$old" 2>/dev/null || true
   done
+)
+
+# Names the newest version whose program is still in the data folder.
+kept() {
+  for old in "$home"/*/; do
+    [ -x "${old}arduino-test-buddy$ext" ] && basename "$old"
+  done | sort -t . -k 1,1n -k 2,2n -k 3,3n | tail -n 1
 }
 
-[ -x "$program" ] || fetch
+# After a failed fetch the program may still be there, placed by another session.
+if [ ! -x "$program" ] && ! fetch && [ ! -x "$program" ]; then
+  other=$(kept)
+  [ -n "$other" ] || exit 1
+  echo "arduino-test-buddy: running version $other, kept from before the update; the next start tries again" >&2
+  program=$home/$other/arduino-test-buddy$ext
+fi
 exec "$program" "$@"
