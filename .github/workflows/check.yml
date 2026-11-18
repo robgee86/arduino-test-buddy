@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -39,6 +39,7 @@ jobs:
           args: check
 
       # The tests of the real ssh client need a Linux sshd: the runner's own on Linux, one in a WSL distribution on Windows.
+      # A macOS runner cannot start one, so it skips them.
       - name: Start a Linux sshd on the runner
         if: runner.os == 'Linux'
         run: |
@@ -70,6 +71,7 @@ jobs:
         shell: pwsh
         run: Start-Process wsl -ArgumentList '-u', 'root', '--', '/usr/sbin/sshd', '-D', '-p', '2222' -WindowStyle Hidden
       - name: Wait for the sshd
+        if: runner.os != 'macOS'
         shell: pwsh
         run: |
           Write-Output "ssh client: $((Get-Command ssh).Source)"
@@ -82,10 +84,12 @@ jobs:
           Write-Output "the ssh target does not answer"
           exit 1
       - name: Test the real ssh client against it
+        if: runner.os != 'macOS'
         run: go test ./internal/board -run TestSSH -v -count=1
         env:
           BUDDY_TEST_SSH_TARGET: bt-target
-      - name: Run the built tool on the runner and against the sshd
-        run: |
-          go run ./cmd/arduino-test-buddy status
-          go run ./cmd/arduino-test-buddy --board bt-target shell "uname -s"
+      - name: Run the built tool on the runner
+        run: go run ./cmd/arduino-test-buddy status
+      - name: Run the built tool against the sshd
+        if: runner.os != 'macOS'
+        run: go run ./cmd/arduino-test-buddy --board bt-target shell "uname -s"
