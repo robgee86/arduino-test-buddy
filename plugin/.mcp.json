@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "buddy": {
+      "command": "arduino-test-buddy",
+      "args": ["mcp"]
+    }
+  }
+}

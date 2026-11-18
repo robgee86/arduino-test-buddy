@@ -1,0 +1,14 @@
+{
+  "name": "arduino-test-buddy",
+  "description": "Test App Bricks on a real Arduino board from Claude Code",
+  "owner": {
+    "name": "Roberto Gazia"
+  },
+  "plugins": [
+    {
+      "name": "arduino-test-buddy",
+      "source": "./plugin",
+      "description": "The board-test skill and the arduino-test-buddy MCP server it drives"
+    }
+  ]
+}

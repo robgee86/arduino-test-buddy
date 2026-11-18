@@ -10,8 +10,16 @@ Needs macOS or Linux (Windows through WSL), Go 1.26, Docker with buildx, [Task](
 
 ```console
 $ go install github.com/robgee86/arduino-test-buddy/cmd/arduino-test-buddy@latest
-$ claude mcp add --scope user arduino-test-buddy -- arduino-test-buddy mcp   # optional, for Claude Code in every project
 ```
+
+For Claude Code, the plugin of this repository adds the MCP server and the `board-test` skill. The skill holds the test workflow and loads only when a board test is asked for, so it costs no context the rest of the time:
+
+```console
+$ claude plugin marketplace add robgee86/arduino-test-buddy
+$ claude plugin install arduino-test-buddy@arduino-test-buddy
+```
+
+Any other agent takes the two parts by hand: register `arduino-test-buddy mcp` as a stdio MCP server and copy [plugin/skills/board-test](plugin/skills/board-test) into its skills folder. Either way, describe your boards once in `~/.config/arduino-test-buddy/boards.yaml`, starting from [boards.example.yaml](plugin/skills/board-test/boards.example.yaml). See [docs/mcp.md](docs/mcp.md).
 
 ## Quickstart
 
@@ -62,7 +70,7 @@ Measured on an Apple Silicon Mac: a push of `python-apps-base` takes 2 minutes o
 
 - [docs/operations.md](docs/operations.md), what each operation does and guarantees, turns and cleanup included
 - [docs/disk.md](docs/disk.md), what the tool stores where, and how to get every byte back
-- [docs/mcp.md](docs/mcp.md), the MCP tools, timeouts and images loaded by hand
+- [docs/mcp.md](docs/mcp.md), the MCP tools, the Claude Code plugin and the skill, timeouts and images loaded by hand
 - [docs/development.md](docs/development.md), building, testing, CI and releases
 
 ## License

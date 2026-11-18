@@ -1,0 +1,10 @@
+{
+  "name": "arduino-test-buddy",
+  "version": "0.4.0",
+  "description": "Test App Bricks on a real Arduino board: the board-test skill and the arduino-test-buddy MCP server it drives",
+  "author": {
+    "name": "Roberto Gazia"
+  },
+  "repository": "https://github.com/robgee86/arduino-test-buddy",
+  "license": "GPL-3.0-or-later"
+}
