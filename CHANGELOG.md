@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.4.0...v0.5.0) (2026-11-18)
+
+
+### Features
+
+* build and test for native Windows ([#11](https://github.com/robgee86/arduino-test-buddy/issues/11)) ([f388530](https://github.com/robgee86/arduino-test-buddy/commit/f388530aecce5de2d3e4b65c22701d8e354ef258))
+* **plugin:** ship the board-test skill and the MCP server as a Claude Code plugin ([#10](https://github.com/robgee86/arduino-test-buddy/issues/10)) ([5e7fd1e](https://github.com/robgee86/arduino-test-buddy/commit/5e7fd1e21b67e82b95eed79d7b46553df544c07a))
+* **push:** build the checkout set in the config file when none is given and the current folder is not one ([#13](https://github.com/robgee86/arduino-test-buddy/issues/13)) ([aa71e7d](https://github.com/robgee86/arduino-test-buddy/commit/aa71e7dad7ac52b184ef4b70de89a4a550b16345))
+
 ## [0.4.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.3.0...v0.4.0) (2026-11-18)
 
 
