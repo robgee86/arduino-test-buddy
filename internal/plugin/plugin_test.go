@@ -41,16 +41,20 @@ func TestTheRepositoryIsAPluginAndNotACatalog(t *testing.T) {
 	}
 }
 
+// launcher is the script the plugin's server entry starts, relative to the plugin root.
+const launcher = "scripts/arduino-test-buddy.sh"
+
 // longestTool is the room a tool name needs after the prefix Claude Code gives the tools of a plugin's server.
 const longestTool = len("board_preflight")
 
-func TestThePluginStartsTheInstalledBinaryAsItsServer(t *testing.T) {
+func TestThePluginStartsItsOwnCopyOfTheProgramAsItsServer(t *testing.T) {
 	// The server is declared in the manifest: a .mcp.json at the root would also register it for whoever opens this repository
 	var manifest struct {
 		Name       string
 		MCPServers map[string]struct {
 			Command string
 			Args    []string
+			Env     map[string]string
 		} `json:"mcpServers"`
 	}
 	read(t, ".claude-plugin/plugin.json", &manifest)
@@ -61,8 +65,12 @@ func TestThePluginStartsTheInstalledBinaryAsItsServer(t *testing.T) {
 		t.Fatalf("the plugin must define one server: %+v", manifest.MCPServers)
 	}
 	for name, s := range manifest.MCPServers {
-		if s.Command != "arduino-test-buddy" || len(s.Args) != 1 || s.Args[0] != "mcp" {
-			t.Errorf("the plugin must run `arduino-test-buddy mcp`: %+v", s)
+		// The launcher fetches the program of the plugin's version into the plugin's data folder, so installing the plugin is all a user does
+		if s.Command != "sh" || len(s.Args) != 2 || s.Args[0] != "${CLAUDE_PLUGIN_ROOT}/"+launcher || s.Args[1] != "mcp" || s.Env["ARDUINO_TEST_BUDDY_HOME"] != "${CLAUDE_PLUGIN_DATA}" {
+			t.Errorf("the plugin must start `mcp` through its launcher, with the plugin's data folder as its home: %+v", s)
+		}
+		if _, err := os.Stat(filepath.Join(root, launcher)); err != nil {
+			t.Errorf("the plugin does not ship its launcher: %v", err)
 		}
 		// A tool name holds 64 characters at most, and a longer one never reaches the model
 		if full := len("mcp__plugin_"+manifest.Name+"_"+name+"__") + longestTool; full > 64 {

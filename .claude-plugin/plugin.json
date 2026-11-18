@@ -9,10 +9,14 @@
   "license": "GPL-3.0-or-later",
   "mcpServers": {
     "buddy": {
-      "command": "arduino-test-buddy",
+      "command": "sh",
       "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/arduino-test-buddy.sh",
         "mcp"
-      ]
+      ],
+      "env": {
+        "ARDUINO_TEST_BUDDY_HOME": "${CLAUDE_PLUGIN_DATA}"
+      }
     }
   }
 }

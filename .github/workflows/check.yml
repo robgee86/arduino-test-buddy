@@ -21,6 +21,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: task check
+      - name: Fetch the released program through the plugin's launcher
+        shell: bash
+        run: |
+          version=$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json | head -n 1)
+          # The release pull request bumps the version before the release and its files exist
+          if ! curl -fsIL -o /dev/null "https://github.com/robgee86/arduino-test-buddy/releases/download/v$version/checksums.txt"; then
+            echo "v$version is not released yet, nothing to fetch"
+            exit 0
+          fi
+          ARDUINO_TEST_BUDDY_HOME="$RUNNER_TEMP/buddy-home" sh scripts/arduino-test-buddy.sh --version
       - name: Check the release build config
         if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v6
