@@ -232,8 +232,12 @@ func TestUpCreatesWhatIsMissingWithoutAutomaticRestarts(t *testing.T) {
 	if _, err := h.Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !cmd.ran("docker run -d --name arduino-test-buddy-registry --user") || cmd.ran("--restart unless-stopped") {
+	if !cmd.ran("docker run -d --name arduino-test-buddy-registry") || cmd.ran("--restart unless-stopped") {
 		t.Error("the registry must be created without a restart policy")
+	}
+	// Windows has no user id to run the registry as
+	if hasUser := os.Getuid() >= 0; cmd.ran("--user") != hasUser {
+		t.Errorf("the registry must run as the user exactly where the system has user ids:\n%s", strings.Join(cmd.commands, "\n"))
 	}
 	if !cmd.ran("docker buildx create --name arduino-test-buddy --driver docker-container --driver-opt network=host --bootstrap") {
 		t.Error("a missing builder must be created with host networking")
