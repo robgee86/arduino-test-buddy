@@ -8,7 +8,7 @@
   "repository": "https://github.com/robgee86/arduino-test-buddy",
   "license": "GPL-3.0-or-later",
   "mcpServers": {
-    "buddy": {
+    "board": {
       "command": "sh",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/scripts/arduino-test-buddy.sh",
