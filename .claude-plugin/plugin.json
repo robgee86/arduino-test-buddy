@@ -1,6 +1,6 @@
 {
   "name": "arduino-test-buddy",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Test App Bricks on a real Arduino board: the board-test skill and the arduino-test-buddy MCP server it drives",
   "author": {
     "name": "Roberto Gazia"

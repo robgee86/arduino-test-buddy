@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/robgee86/arduino-test-buddy/compare/v0.7.0...v0.7.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **plugin:** rename the MCP server to board for a clearer tool label ([#22](https://github.com/robgee86/arduino-test-buddy/issues/22)) ([edbde47](https://github.com/robgee86/arduino-test-buddy/commit/edbde47f22a02ba51abd1fa15aa8bad929cfbc40))
+
 ## [0.7.0](https://github.com/robgee86/arduino-test-buddy/compare/v0.6.0...v0.7.0) (2026-11-18)
 
 
